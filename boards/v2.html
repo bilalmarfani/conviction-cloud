@@ -381,7 +381,7 @@ function analyze(bars, ref){
   let cc=0, vv=0; const series = rth.map(b=>{ const rng=b.h-b.l; cc += rng>0 ? b.v*((b.c-b.l)-(b.h-b.c))/rng : 0; vv+=b.v; return {m:b.min, c:b.c, h:b.h, l:b.l, v:b.v, f: vv>0?cc/vv:0}; });
   const post = bars.filter(b=>b.min>=15*60); const ah = post.length ? {price:post[post.length-1].c, min:post[post.length-1].min} : null;
   return {price:last.c, lastMin:last.min, ah, closed: last.min>=15*60-1, orHi, orLo, orReady, cvd, vol, vwap: vol>0?pv/vol:last.c, flowPct: vol>0?cvd/vol:0, series,
-          firstCross:(m0, level, below)=>{ const b=rth.find(x=>x.min>m0 && (below ? x.l<=level : x.h>=level)); return b?b.min:null; },
+          firstCross:(m0, level, below)=>{ const b=rth.find(x=>x.min>m0 && x.min<=RULES.FLAT && (below ? x.l<=level : x.h>=level)); return b?b.min:null; },  // plays are flat at 2:40: later crosses do not count
           hiSince:(m)=>Math.max(...rth.filter(b=>b.min>m).map(b=>b.h), -Infinity), loSince:(m)=>Math.min(...rth.filter(b=>b.min>m).map(b=>b.l), Infinity),
           closeAt:(m)=>{ const b=rth.filter(x=>x.min<=m); return b.length?b[b.length-1].c:null; }};
 }
@@ -557,11 +557,21 @@ function MiniChart({a, sc, trade, side}){
   </div>`;
 }
 
-// Contracts by dollar budget: as many as fit (max 3), never fewer than 1
-function sizeBudget(c, budget){
-  if(!c || !(c.mid>0)) return null; const per=c.mid*100; const fit=Math.floor((budget||0)/per);
-  const n=Math.max(1, Math.min(3, fit)); return {n, per, cost:n*per, over: fit<1};
+// Contracts, like Board v3: each strategy (GO IN, 5-MIN, TECH GO) has its own $50,000 paper account and risks 1% ($500) per play
+// to the stop (|delta| x stop distance x 100 per contract), never more than the Max $ per play in premium. No forced minimum:
+// if even one contract breaks either limit the play is logged with 0 contracts ($0), not sized up to 1.
+const ACCOUNT = 50000, RISK_PCT = 0.01, RISK_USD = ACCOUNT*RISK_PCT;
+function sizeBudget(c, budget, play){
+  if(!c || !(c.mid>0)) return null; const per=c.mid*100; const byPrem=Math.floor((budget||0)/per);
+  const dist = play && Number.isFinite(play.entry) && Number.isFinite(play.stop) ? Math.abs(play.entry-play.stop) : null;
+  const riskPer = dist>0 ? Math.abs(Number.isFinite(c.delta) && c.delta ? c.delta : 0.5)*dist*100 : null;
+  const byRisk = riskPer>0 ? Math.floor(RISK_USD/riskPer) : byPrem;
+  const n = Math.max(0, Math.min(byPrem, byRisk));
+  const why = n>=1 ? null : (byPrem<1 ? 'one contract costs $'+Math.round(per).toLocaleString('en-US')+', over the $'+(+budget||0).toLocaleString('en-US')+' max per play'
+    : 'one contract risks $'+Math.round(riskPer).toLocaleString('en-US')+' to the stop, over the $'+RISK_USD+' (1%) limit');
+  return {n, per, cost:n*per, risk: riskPer!=null ? n*riskPer : null, over: n<1, why};
 }
+const usdPL = (n, p0, p1) => n===0 ? 0 : (n && p0>0 && p1>0 ? Math.round((p1-p0)*100*n) : null);
 const expTxt = e => { if(!e) return '–'; const d=new Date(e+'T12:00:00Z'); return d.toLocaleDateString('en-US',{month:'short',day:'numeric',timeZone:'UTC'}); };
 
 function ContractBox({t, budget, mode}){
@@ -573,12 +583,12 @@ function ContractBox({t, budget, mode}){
   const side = tr ? tr.side : (c.side||1); const prem = tr && tr.premEntry ? tr.premEntry : c.mid; const atr=t.atr;
   const hold = Math.max(0, RULES.FLAT-(tr?tr.entryMin:Math.max(RULES.WIN_START, t.a?t.a.lastMin:RULES.WIN_START)))/390;
   const cc={...c, mid:prem}; const vSl=project(cc,-RULES.STOP_ATR*atr,hold*0.3), vTp=project(cc,RULES.TP_ATR*atr,hold*0.5);
-  const z = tr && tr.contracts ? {n:tr.contracts, per:prem*100, cost:tr.contracts*prem*100, over: prem*100>(tr.budget||budget)} : sizeBudget(cc, budget);
+  const z = tr && tr.contracts!=null ? {n:tr.contracts, per:prem*100, cost:tr.contracts*prem*100, over: tr.contracts<1, why: tr.contracts<1 ? (tr.sizeNote||'size rounds to zero') : null} : sizeBudget(cc, budget, tr);
   return html`<div className="cbox">
     <div className="clabel">${tr?('Contract · priced at '+tierName):'Contract if it fires now'}${c.est?' · estimate':''}</div>
     <div className="cmain num">${t.sym} ${expTxt(c.expiry)} $${f2(c.strike)} ${side>0?'CALL':'PUT'} <span className="cdte">${c.dte!=null?c.dte+'d':''}</span></div>
     <div className="cline num">${tr?'entry':'mid'} $${f2(prem)} = $${prem?(prem*100).toLocaleString('en-US',{maximumFractionDigits:0}):'–'}/contract${c.bid!=null?(tr?' · now':'')+' bid $'+f2(c.bid)+' / ask $'+f2(c.ask):''} · Δ ${c.delta!=null?Math.abs(c.delta).toFixed(2):'–'}${!tr && c.quoteAt?' · quote '+hms(c.quoteAt)+' CT':''}${tr && c.quoteAt?' · priced '+hms(c.quoteAt)+' CT':''}</div>
-    ${z && html`<div className="cline num"><b>${z.n} contract${z.n===1?'':'s'}</b> · $${Math.round(z.cost).toLocaleString('en-US')} total${z.over?' · over your $'+budget.toLocaleString('en-US')+' budget':''} · at stop ≈ −$${Math.round(z.n*Math.max(0,prem-vSl)*100).toLocaleString('en-US')} · at target ≈ +$${Math.round(z.n*Math.max(0,vTp-prem)*100).toLocaleString('en-US')}</div>`}
+    ${z && html`<div className="cline num"><b>${z.n} contract${z.n===1?'':'s'}</b> · $${Math.round(z.cost).toLocaleString('en-US')} total${z.over?' · not taken: '+(z.why||'over the limits'):''} · at stop ≈ −$${Math.round(z.n*Math.max(0,prem-vSl)*100).toLocaleString('en-US')} · at target ≈ +$${Math.round(z.n*Math.max(0,vTp-prem)*100).toLocaleString('en-US')}</div>`}
   </div>`;
 }
 
@@ -594,7 +604,7 @@ function PlayTracker({t, x, tier, budget, contract, full}){
   const state = (open ? (R<=-0.7?'NEAR STOP':(R>=2.4?'NEAR TARGET':'OPEN')) : ({stop:'STOPPED',target:'TARGET HIT',flat:'FLAT 2:40'}[x.reason]||'CLOSED')+' · '+hm(x.exitMin)) + (x.fade?' · FADED':'');
   const prem = x.premEntry; const ownCt = x.contract || contract;
   const live = open ? (x.liveMid ?? (contract&&contract.ticker===(x.contract?x.contract.ticker:contract.ticker)&&!contract.est?contract.mid:(ownCt&&prem?project({...ownCt, mid:prem}, x.side*(a.price-x.entry), Math.max(0,a.lastMin-x.entryMin)/390):null))) : x.premExit;
-  const n = x.contracts || (prem ? sizeBudget({mid:prem}, budget).n : 1);
+  const n = x.contracts ?? (prem ? sizeBudget({...(x.contract||{}), mid:prem}, budget, x).n : 1);
   const pnl = prem && live ? n*(live-prem)*100 : null;
   const money=v=>(v>=0?'+$':'−$')+Math.abs(Math.round(v)).toLocaleString('en-US');
   return html`<div className=${'tracker '+zone}>
@@ -693,7 +703,7 @@ function Card({t, flash, budget, mode, detail}){
 const TIER_CLS = {'GO IN':'go','5-MIN':'five','TECH GO':'tech'};
 function playMoney(t, x, budget){
   const a=t.a; const prem=x.premEntry; if(!(prem>0)) return {n:null, pnl:null, est:true};
-  const n = x.contracts || sizeBudget({mid:prem}, x.budget||budget).n;
+  const n = x.contracts ?? sizeBudget({...(x.contract||{}), mid:prem}, x.budget||budget, x).n;
   const ct = x.contract || t.contract; let v=null, est=true;
   if(x.exit!=null){ if(x.premExit>0){ v=x.premExit; est=!!(ct&&ct.est); } else if(ct){ v=project({...ct, mid:prem}, x.side*(x.exit-x.entry), (x.exitMin-x.entryMin)/390); } }
   else if(x.liveMid>0){ v=x.liveMid; est=false; }
@@ -813,7 +823,7 @@ function scoreRows(T, budget, realOpt){
       const done=x.exit!=null; const px=done?x.exit:(t.a?t.a.price:x.entry);
       const r=x.side*(px-x.entry)/(RULES.STOP_ATR*atr); const stockPct=x.side*(px/x.entry-1)*100;
       let estPct=null; if(c && prem){ const v=project({...c, mid:prem}, x.side*(px-x.entry), ((done?x.exitMin:(t.a?t.a.lastMin:x.entryMin))-x.entryMin)/390); estPct=(v/prem-1)*100; }
-      const z = prem ? sizeBudget({mid:prem}, budget) : null; const n = (extra&&extra.contracts) || (z?z.n:1);
+      const z = prem ? sizeBudget({...(c||{}), mid:prem}, budget, x) : null; const n = extra&&extra.contracts!=null ? extra.contracts : (z?z.n:1);
       const ro = realOpt[sym+'|'+tier+'|'+(x.n||1)];
       const optPct = ro && ro.pct!=null ? ro.pct : estPct;
       const dollars = ro && ro.pct!=null ? ro.n*(ro.p1-ro.p0)*100 : (prem&&estPct!=null ? n*prem*estPct : null);
@@ -949,9 +959,9 @@ function Curve({rows}){
 function paperNorm(r, budget, exitRule){
   const fadeOn = exitRule==='fade' && r.fadeDone && r.fade && Number.isFinite(r.fade.optPct);
   const p0 = r.premEntry, p1 = fadeOn ? r.fade.prem : r.premExit;
-  const n = r.contracts || (p0>0 ? sizeBudget({mid:p0}, r.budget||budget).n : null);
+  const n = r.contracts ?? (p0>0 ? sizeBudget({...(r.contract||{}), mid:p0}, r.budget||budget, r).n : null);
   const pctv = fadeOn ? r.fade.optPct : r.optPct;
-  const usd = (n && p0>0 && p1>0) ? Math.round((p1-p0)*100*n) : (r.source==='manual' && Number.isFinite(r.dollarPL) ? r.dollarPL : null);
+  const usd = r.source==='manual' ? (Number.isFinite(r.dollarPL) ? r.dollarPL : usdPL(n,p0,p1)) : usdPL(n,p0,p1);
   return {...r, contracts:n, optPct:pctv, dollarPL:usd, premExit: fadeOn ? r.fade.prem : r.premExit};
 }
 const usdTxt = v => (v>=0?'+$':'−$')+Math.abs(v).toLocaleString('en-US');
@@ -986,7 +996,7 @@ function PnlSummary({rows, budget}){
       <thead><tr><th></th>${periods.map(([p])=>html`<th key=${p}>${p}</th>`)}</tr></thead>
       <tbody>${groups.map(([name,sub,list])=>html`<tr key=${name}><th scope="row" className="pnl-h">${name}<div className="note">${sub}</div></th>${periods.map(([p,f])=>html`<${React.Fragment} key=${p}>${cell(list.filter(f))}</${React.Fragment}>`)}</tr>`)}</tbody>
     </table></div>
-    <div className="note">All 11 tickers. Sized by your Max $ per play (${'$'+(+budget).toLocaleString('en-US')}, max 3 contracts, at least 1), filled at the option mid, no commissions. Your own fills are in the Webull log below.</div>
+    <div className="note">All 11 tickers. Each strategy has its own $50,000 paper account: 1% risk ($500) per play to the stop, at most ${'$'+(+budget).toLocaleString('en-US')} premium (your Max $ per play), 0 contracts if one would break either limit, filled at the option mid, no commissions. Your own fills are in the Webull log below.</div>
   </section>`;
 }
 
@@ -1087,7 +1097,7 @@ function App(){
   const [replayMsg,setReplayMsg]=useState('');
   const [realOpt,setRealOpt]=useState({});
   const optPending=useRef({});
-  const [budget,setBudget]=useState(()=>{ try{ const v=+localStorage.getItem('ce-budget'); return v>0?v:1700; }catch(e){ return 1700; } });
+  const [budget,setBudget]=useState(()=>{ try{ const v=+localStorage.getItem('ce-budget'); return v>0?v:2500; }catch(e){ return 2500; } });
   const budgetRef=useRef(budget); budgetRef.current=budget;
   const [sound,setSound]=useState(()=>{ try{ return localStorage.getItem('ce-sound')||'off'; }catch(e){ return 'off'; } });
   const [soundReady,setSoundReady]=useState(false);
@@ -1225,7 +1235,7 @@ function App(){
             pDir, jevOk: pDir!=null && pDir>=RULES.JEV_MIN, flow:q.f, n:t.n5||1, ev:[], fiveAt: (t.sim||late)?null:Date.now(), late, routed: !!t.sim,
             oneMin: one ? {entryMin:one.entryMin, entry:one.entry, side:one.side} : null,
             contract:{ticker:c.ticker, expiry:c.expiry, strike:c.strike, delta:c.delta, gamma:c.gamma, theta:c.theta, mid:prem, est:!!c.est}, premEntry:prem};
-          { const z=sizeBudget({mid:prem}, budgetRef.current); t.five.contracts=z?z.n:null; t.five.budget=budgetRef.current; }
+          { const z=sizeBudget(t.five.contract, budgetRef.current, t.five); t.five.contracts=z?z.n:null; t.five.budget=budgetRef.current; t.five.sizeNote=z&&z.why; }
           if(!late){
             flashUntil.current[t.sym]=Date.now()+2600;
             toast(t.sym+' · 5-MIN GO '+(sd>0?'CALLS':'PUTS')+' · '+hm(q.m-4)+' candle closed '+(sd>0?'above':'below')+' '+f2(sd>0?up:dn)+((t.n5||1)>1?' · play #'+t.n5:''),'five');
@@ -1294,7 +1304,7 @@ function App(){
         t.trade={side, entry, entryMin:m, stop: entry - side*RULES.STOP_ATR*t.atr, tp: entry + side*RULES.TP_ATR*t.atr, exit:null, routed:false, prime, goAt: t.sim ? null : Date.now(), n: t.n||1, ev:[]};
         if(!t.contract || t.contract.side!==side){ const c=estContract(entry,t.atr,side,t.date); c.ticker=occ(t.sym,c.expiry,side,c.strike); t.contract={...c, side}; }
         t.trade.premEntry = t.contract.mid; t.status='GO';
-        { const z=sizeBudget(t.contract, budgetRef.current); t.trade.contracts = z? z.n : null; t.trade.budget = budgetRef.current; }
+        { const z=sizeBudget(t.contract, budgetRef.current, t.trade); t.trade.contracts = z? z.n : null; t.trade.budget = budgetRef.current; t.trade.sizeNote=z&&z.why; }
         flashUntil.current[t.sym]=Date.now()+2600; toast(t.sym+' · GO IN '+(side>0?'CALLS':'PUTS')+((t.n||1)>1?' · play #'+t.n:'')+(prime?' · prime':' · after 9:00'), PRIMARY.includes(t.sym)?'':'ref');
         if(soundRef.current!=='off'){ chaChing(); if(soundRef.current==='voice') sayGo(t.sym, side); }
         persist&&persist(t);
@@ -1348,8 +1358,8 @@ function App(){
     const doc={date:today, sym:t.sym, role:roleOf(t.sym), prime: !!tr.prime, goAt: tr.goAt??null, side:tr.side, entry:tr.entry, entryMin:tr.entryMin, stop:tr.stop, status: tr.exit==null?'open':'closed',
       tp:tr.tp??null, exit:tr.exit??null, exitMin:tr.exitMin??null, exitReason:tr.reason??null, source:'live',
       contract: t.contract? {ticker:t.contract.ticker||null, expiry:t.contract.expiry||null, strike:t.contract.strike, type:tr.side>0?'call':'put', delta:t.contract.delta, bid:t.contract.bid??null, ask:t.contract.ask??null, est:!!t.contract.est}:null,
-      contracts: tr.contracts??null, budget: tr.budget??null,
-      dollarPL: (tr.contracts && tr.premEntry && tr.premExit) ? Math.round((tr.premExit-tr.premEntry)*100*tr.contracts) : null,
+      contracts: tr.contracts??null, budget: tr.budget??null, sizeNote: tr.sizeNote||null,
+      dollarPL: usdPL(tr.contracts, tr.premEntry, tr.premExit),
       premEntry: tr.premEntry??null, premExit: tr.premExit??null, optPct: tr.optPct??null, stockPct: tr.exit!=null? tr.side*(tr.exit/tr.entry-1)*100 : null,
       fadeDone: tr.fade!==undefined, fade: tr.fade??null, updatedAt:new Date().toISOString()};
     const pn=tr.n||1; doc.n=pn; doc.alerts=(tr.ev||[]).slice(-20); doc.maxR=tr.maxR??null;
@@ -1363,7 +1373,7 @@ function App(){
       contract: sh.contract? {ticker:sh.contract.ticker, expiry:sh.contract.expiry, strike:sh.contract.strike, type:sh.side>0?'call':'put', est:sh.contract.est}:null,
       premEntry: sh.premEntry??null, premExit: sh.premExit??null, optPct: sh.optPct??null, stockPct: sh.exit!=null? sh.side*(sh.exit/sh.entry-1)*100 : null,
       fadeDone: sh.fade!==undefined, fade: sh.fade??null, updatedAt:new Date().toISOString()};
-    if(sh.premEntry>0){ const z=sizeBudget({mid:sh.premEntry}, budgetRef.current); doc.contracts=z.n; doc.budget=budgetRef.current; if(sh.premExit>0) doc.dollarPL=Math.round((sh.premExit-sh.premEntry)*100*z.n); }
+    if(sh.premEntry>0){ const z=sizeBudget({...(sh.contract||{}), mid:sh.premEntry}, budgetRef.current, sh); doc.contracts=z.n; doc.budget=budgetRef.current; doc.sizeNote=z.why||null; doc.dollarPL=usdPL(z.n, sh.premEntry, sh.premExit); }
     const pn=sh.n||1; doc.n=pn; doc.alerts=(sh.ev||[]).slice(-20); doc.maxR=sh.maxR??null;
     try{ await db.collection('paper').doc(today+'-'+t.sym+'-shadow'+(pn>1?'-p'+pn:'')).set(doc); }catch(e){}
   },[db]);
@@ -1381,8 +1391,8 @@ function App(){
       jevDir: x.pDir??null, jevOk: !!x.jevOk, flow: x.flow??null, oneMin: x.oneMin??null,
       contract: x.contract? {ticker:x.contract.ticker, expiry:x.contract.expiry, strike:x.contract.strike, type:x.side>0?'call':'put', delta:x.contract.delta??null, est:!!x.contract.est}:null,
       premEntry: x.premEntry??null, premExit: x.premExit??null, optPct: x.optPct??null, stockPct: x.exit!=null? x.side*(x.exit/x.entry-1)*100 : null,
-      contracts: x.contracts??null, budget: x.budget??null,
-      dollarPL: (x.contracts && x.premEntry>0 && x.premExit>0) ? Math.round((x.premExit-x.premEntry)*100*x.contracts) : null,
+      contracts: x.contracts??null, budget: x.budget??null, sizeNote: x.sizeNote||null,
+      dollarPL: usdPL(x.contracts, x.premEntry, x.premExit),
       fadeDone: x.fade!==undefined, fade: x.fade??null, alerts:(x.ev||[]).slice(-20), maxR:x.maxR??null, updatedAt:new Date().toISOString()};
     try{ await db.collection('paper').doc(id).set(doc); }catch(e){}
   },[db]);
@@ -1462,6 +1472,40 @@ function App(){
     const r = parseCSV(resultText(res))[0]; if(!r) return null; const bid=+r.last_quote_bid, ask=+r.last_quote_ask; return bid>0&&ask>0?(bid+ask)/2:(+r.last_quote_midpoint||null);
   },[call]);
 
+  // Plays still open from an earlier day (the board was not running at 2:40): close them from that day's bars, the same way
+  // the live board would have: stop or target if either was hit by 2:40 PM CT, else flat at the 2:40 close. The option exit is the
+  // contract's own last trade at or before the exit minute (within 30 min); estimated entries are replaced by the real trade too.
+  const closeStale = useCallback(async ()=>{
+    if(!db || !mcp || window.__VIEWER) return; const today=ctParts(Date.now()).date;
+    const open = paperRef.current.filter(p=>p.status==='open' && p.date && p.date<today && p.source!=='manual' && p.entryMin!=null && p.stop!=null);
+    for(const p of open){ try{
+      const a = analyze(await loadMinutes(p.sym, p.date)); if(!a || a.premarket || a.lastMin<RULES.FLAT) continue;   // that day's data not complete
+      const sMin=a.firstCross(p.entryMin, p.stop, p.side>0), tMin=p.tp!=null ? a.firstCross(p.entryMin, p.tp, p.side<0) : null;
+      let exit, exitMin, reason;
+      if(sMin!=null && (tMin==null || sMin<=tMin)){ exit=p.stop; exitMin=sMin; reason='stop'; }
+      else if(tMin!=null){ exit=p.tp; exitMin=tMin; reason='target'; }
+      else { exit=a.closeAt(RULES.FLAT); exitMin=RULES.FLAT; reason='flat'; }
+      let premEntry=p.premEntry, premExit=null; const ct=p.contract && p.contract.ticker && !String(p.contract.ticker).includes('SYM') ? p.contract.ticker : null;
+      if(ct){ try{
+        const res=await call('host:massive','call_api',{path:`/v2/aggs/ticker/${ct}/range/1/minute/${p.date}/${p.date}`, params:{adjusted:'true',sort:'asc',limit:50000}});
+        const ob=parseCSV(resultText(res)).filter(r=>+r.t>0).map(r=>({min:ctParts(+r.t).min, c:+r.c})).filter(b=>b.c>0);
+        const at=(m,back)=>{ const b=ob.filter(z=>z.min<=m && z.min>=m-back); return b.length? b[b.length-1].c : null; };
+        premExit=at(exitMin,30);
+        if(p.contract.est){ const pe=at(p.entryMin,10) ?? (ob.find(z=>z.min>p.entryMin && z.min<=p.entryMin+10)||{}).c; if(pe>0) premEntry=pe; }
+      }catch(e){} }
+      if(!(premExit>0) && premEntry>0) premExit=project({mid:premEntry, delta:(p.contract&&p.contract.delta)||0.5, gamma:0, theta:0}, p.side*(exit-p.entry), (exitMin-p.entryMin)/390);
+      const upd={status:'closed', exit, exitMin, exitReason:reason, premExit: premExit>0?premExit:null, optPct: premExit>0&&premEntry>0 ? (premExit/premEntry-1)*100 : null,
+        stockPct: p.side*(exit/p.entry-1)*100, dollarPL: usdPL(p.contracts, premEntry, premExit), closedLate:true, updatedAt:new Date().toISOString()};
+      if(premEntry!==p.premEntry){ upd.premEntry=premEntry; upd.premEntryEstimated=p.premEntry; }
+      await db.collection('paper').doc(p.id).update(upd);
+    }catch(e){} }
+  },[db, mcp, call, loadMinutes]);
+  const closeStaleRef=useRef(closeStale); closeStaleRef.current=closeStale;
+  useEffect(()=>{ if(mode!=='live' || !mcp || !db) return;
+    const go=()=>closeStaleRef.current();   // retries every 15 min until that day's data is complete
+    const first=setTimeout(go, 8000); const id=setInterval(go, 15*60e3); return ()=>{ clearTimeout(first); clearInterval(id); };
+  },[mode, mcp, db]);
+
   /* ---------- REPLAY a real past day ---------- */
   const loadReplay = useCallback(async (date)=>{
     if(!mcp){ setReplayMsg('Replay needs this board open in the Claude desktop app on your Mac (Massive + Jev).'); return; }
@@ -1502,7 +1546,7 @@ function App(){
     const at=(m)=>{ const b=bars.filter(x=>x.min<=m); return b.length?b[b.length-1].c:(bars.find(x=>x.min>m)||{}).c; };
     const p0=at(entryMin), p1=at(exitMin);
     if(!(p0>0)||!(p1>0)) return {ticker:c.ticker};
-    const n=sizeBudget({mid:p0}, budgetRef.current).n;
+    const n=sizeBudget({mid:p0}, budgetRef.current, {entry:px, stop:px-side*RULES.STOP_ATR*(S.current[sym]&&S.current[sym].atr||0)}).n;
     return {ticker:c.ticker, p0, p1, n, pct:(p1/p0-1)*100};
   },[call]);
   useEffect(()=>{
@@ -1549,7 +1593,7 @@ function App(){
     if(nowMin>RULES.FLAT+5){
       for(const sym of order){ const t=S.current[sym]; if(!t||!t.a||errs[sym]) continue;
         restoreToday(t, sym, today);
-        evaluate(t, nowMin, null, null, persistFive); }
+        evaluate(t, nowMin, persistLive, persistShadow, persistFive); }   // closes after 2:45 (reload, late start) are saved for every tier, not only 5-MIN
       setLiveMsg('Session closed · after-hours prices updated '+hm(ctParts(Date.now()).min)+' CT'); setBusy(false); setTick(x=>x+1); return; }
     if(full) setLiveMsg('Prices loaded. Reading news (Jev) and option chains…');
     // Phase 2: Jev, contract routing and trade state, one ticker at a time (primary first)
@@ -1588,7 +1632,7 @@ function App(){
               prem=at(x.entryMin); if(x.exit!=null) pExit=at(x.exitMin); real=prem!=null; }catch(e){}
             if(prem==null) prem=Math.max(0.01, c.mid + (Number.isFinite(c.delta)?c.delta:0.5*x.side)*(x.entry-S0));
             x.contract={ticker:c.ticker, expiry:c.expiry, strike:c.strike, delta:c.delta, gamma:c.gamma, theta:c.theta, mid:prem, est:false, entryFromTrades:real};
-            x.premEntry=prem; const z=sizeBudget({mid:prem}, budgetRef.current); x.contracts=z?z.n:null;
+            x.premEntry=prem; const z=sizeBudget(x.contract, budgetRef.current, x); x.contracts=z?z.n:null; x.sizeNote=z&&z.why;
             if(x.exit!=null){ const v = pExit!=null ? pExit : project({...x.contract}, x.side*(x.exit-x.entry), (x.exitMin-x.entryMin)/390); x.premExit=v; x.optPct=(v/prem-1)*100; }
             await persistFive(t); } }catch(e){}
         }
@@ -1596,7 +1640,7 @@ function App(){
           // GO IN just fired: route the exact ATM ~30-day contract at the trigger price
           { try{ const c=await loadRoute(sym,today,t.trade.side,t.trade.entry); if(c){ t.contract=c; t.contractAt=now; } }catch(e){ t.routeErr=e.code||'error'; } }
           t.trade.routed=true; t.trade.premEntry = t.contract ? t.contract.mid : null; t.trade.routedAt = ctParts(Date.now()).min;
-          { const z=sizeBudget(t.contract, budgetRef.current); t.trade.contracts = z? z.n : null; t.trade.budget = budgetRef.current; }
+          { const z=sizeBudget(t.contract, budgetRef.current, t.trade); t.trade.contracts = z? z.n : null; t.trade.budget = budgetRef.current; t.trade.sizeNote=z&&z.why; }
           await persistLive(t);
         }
       }catch(e){ errs[sym]=e&&e.code||'error'; }

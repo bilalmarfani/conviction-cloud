@@ -79,6 +79,8 @@ if [ -z "$(getv ANTHROPIC_API_KEY)" ] && [ -z "$(getv JEV_ASKED)" ]; then
   [ -n "$AK" ] && setv ANTHROPIC_API_KEY "$AK"
   setv JEV_ASKED 1
 fi
+# read-only export key: lets Claude copy paper plays into the v2 artifact (see tools/sync_paper.py). Show it with: grep EXPORT_KEY /opt/conviction/.env
+[ -n "$(getv EXPORT_KEY)" ] || setv EXPORT_KEY "$(openssl rand -hex 24)"
 setv MASSIVE_CMD "$MASSIVE_BIN"
 setv PORT 80
 
