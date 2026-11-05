@@ -305,6 +305,8 @@ const RULES = {
 };
 const W = {breakout:30, flow:35, jev:25, spread:10};
 const PRIMARY = ['NVDA','TSLA'], REF = ['AAPL','SPY','QQQ','MU','PLTR','SMCI','AMD','AVGO','HOOD'], ALL = [...PRIMARY, ...REF];
+// Paper plays only on the tickers whose 12-month backtest was positive (Nov 5 2026); the other 7 stay on screen as a watchlist.
+const TRADE = new Set(['NVDA','TSLA','MU','PLTR']);
 // 12-month backtest of these exact rules, 8:45-9:00 window, ~30-day options: [signals per year, avg option return %]
 const BT = {NVDA:[24,1.93],TSLA:[20,4.25],AAPL:[16,-5.87],SPY:[26,-3.38],QQQ:[30,-0.42],MU:[25,3.99],PLTR:[23,6.11],SMCI:[30,-1.44],AMD:[23,-14.98],AVGO:[20,-3.89],HOOD:[25,-3.10]};
 // Backtest Oct 22 2025 - Oct 20 2026, 1-min bars: breakout + volume delta, 0.5 ATR stop, 1.5 ATR target, flat 2:40, ~30-day ATM option costs. No Jev (no history).
@@ -639,7 +641,7 @@ function Card({t, flash, budget, mode, detail}){
   const contract = t.contract;
   return html`<article className=${cls} id=${'card-'+t.sym}>
     <div className="row">
-      <div><span className="sym">${t.sym}</span><span className=${'side '+(side>0?'calls':'puts')}>${side>0?'CALLS':'PUTS'}</span>${verified && html`<span className="verified">✓ Verified</span>`}</div>
+      <div><span className="sym">${t.sym}</span><span className=${'side '+(side>0?'calls':'puts')}>${side>0?'CALLS':'PUTS'}</span>${verified && html`<span className="verified">✓ Verified</span>`}${!TRADE.has(t.sym) && html`<span className="verified" style=${{color:'var(--muted)',borderColor:'var(--line-2)'}} title="Backtest was negative: shown for reference, no paper plays">Watch only</span>`}</div>
       <span className=${'pill '+pillK}>${pillT}</span>
     </div>
     <div className="row">
@@ -1208,7 +1210,7 @@ function App(){
       if(!t.five){
         const from=Math.max(RULES.WIN_START, t.from5||0);
         const q=a.series.find(p=>p.m>=from && p.m<=MON_END && is5(p.m) && done5(p) && ((p.c>up && p.f>=RULES.FLOW_PCT) || (p.c<dn && p.f<=-RULES.FLOW_PCT)));
-        if(q){
+        if(q && TRADE.has(t.sym)){
           const sd = q.c>up ? 1 : -1, entry=q.c, late=lateOf(q.m);
           const pDir = t.pUp==null ? null : (sd>0?t.pUp:1-t.pUp);
           const useLive = t.contract && t.contract.side===sd && !t.contract.est;
@@ -1254,7 +1256,7 @@ function App(){
       else if(a.lastMin>=RULES.FLAT){ sh.exit=a.closeAt(RULES.FLAT); sh.exitMin=RULES.FLAT; sh.reason='flat'; }
       if(sh.exit!=null){ if(!lateOf(sh.exitMin)) exitAlert(sh, 'TECH GO', techSoundRef.current); if(sh.liveMid && sh.contract && !sh.contract.est){ sh.premExit=sh.liveMid; sh.optPct=(sh.liveMid/sh.premEntry-1)*100; } else if(sh.contract){ const v=project(sh.contract, sh.side*(sh.exit-sh.entry), (sh.exitMin-sh.entryMin)/390); sh.premExit=v; sh.optPct=(v/sh.premEntry-1)*100; } persistShadow&&persistShadow(t); }
     }
-    if(!t.shadow && !t.trade && a.orReady && !a.premarket && a.lastMin>=RULES.WIN_START && a.lastMin<=MON_END && t.atr){
+    if(TRADE.has(t.sym) && !t.shadow && !t.trade && a.orReady && !a.premarket && a.lastMin>=RULES.WIN_START && a.lastMin<=MON_END && t.atr){
       for(const sd of [1,-1]){ const x=score(a,t.atr,sd,t.pUp,true);
         const spreadKnown = t.contract && t.contract.side===sd && t.contract.spreadPct!=null;
         if(x.L.breakout && x.L.flow && !x.L.jev && (!spreadKnown || t.contract.spreadPct<=RULES.SPREAD_MAX)){ const entry=a.price;
@@ -1284,7 +1286,7 @@ function App(){
     if(m < RULES.OR_END) t.status='PRE';
     else if(m <= MON_END){
       t.status='SCAN';
-      if(m>=RULES.WIN_START && t.sc.go){
+      if(m>=RULES.WIN_START && t.sc.go && TRADE.has(t.sym)){
         const side=t.sc.side; const entry=a.price; const prime = m<=RULES.WIN_END;
         t.trade={side, entry, entryMin:m, stop: entry - side*RULES.STOP_ATR*t.atr, tp: entry + side*RULES.TP_ATR*t.atr, exit:null, routed:false, prime, goAt: t.sim ? null : Date.now(), n: t.n||1, ev:[]};
         if(!t.contract || t.contract.side!==side){ const c=estContract(entry,t.atr,side,t.date); c.ticker=occ(t.sym,c.expiry,side,c.strike); t.contract={...c, side}; }

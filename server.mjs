@@ -30,6 +30,7 @@ const CFG = {
   engine: process.env.ENGINE !== 'off',
   engineToken: process.env.ENGINE_TOKEN || crypto.randomBytes(18).toString('hex'),
   gitSync: process.env.GIT_SYNC !== 'off',
+  exportKey: process.env.EXPORT_KEY || '',
 };
 const BOARDS = {
   v3: { file: 'boards/v3.html', title: 'Conviction Board v3', engineOnly: ['v3trades', 'v3signals'] },
@@ -184,6 +185,18 @@ const server = http.createServer(async (req, res) => {
   try {
     const u = new URL(req.url, 'http://x');
     if (u.pathname === '/healthz') return send(res, 200, { ok: true });
+    // Read-only export for Claude's analysis: paper trades, signals, scans, backtests and health. Needs EXPORT_KEY; cannot change anything.
+    const xm = /^\/export\/(v2|v3|health)$/.exec(u.pathname);
+    if (xm) {
+      const k = String(req.headers['x-export-key'] || u.searchParams.get('key') || '');
+      const ok = CFG.exportKey.length >= 20 && k.length === CFG.exportKey.length && crypto.timingSafeEqual(Buffer.from(k), Buffer.from(CFG.exportKey));
+      if (!ok) return send(res, 403, { error: 'export key required' });
+      if (xm[1] === 'health') { const h = health(); return send(res, 200, h); }
+      const since = u.searchParams.get('since') || '';
+      const d = dbOf(xm[1]); const out = {};
+      for (const [coll, docs] of Object.entries(d)) { out[coll] = {}; for (const [id, doc] of Object.entries(docs)) { if (!since || !/^\d{4}-\d\d-\d\d/.test(id) || id.slice(0, 10) >= since) out[coll][id] = doc; } }
+      return send(res, 200, { board: xm[1], at: new Date().toISOString(), collections: out });
+    }
     if (!authed(req)) { res.writeHead(401, { 'www-authenticate': 'Basic realm="Conviction boards"', 'content-type': 'text/plain' }); return res.end('Sign in with your board user name and password.'); }
     const p = u.pathname;
     if (p === '/' ) return send(res, 200, indexPage(), 'text/html; charset=utf-8');
