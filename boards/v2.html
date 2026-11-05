@@ -293,6 +293,9 @@ const {useState,useEffect,useRef,useCallback,useMemo} = React;
 const html = htm.bind(React.createElement);
 
 /* ======================= Rules (backtest-tuned) ======================= */
+/* On the cloud server the bars come from the server's live stream, so the board can refresh every 2 s (10 s if the stream is down). */
+const CLOUD = !!(window.__CC && window.__CC.board);
+const STREAMING = ()=> CLOUD && window.__CC.live !== false;
 const MON_END = 840; // GO IN allowed 8:45 AM - 2:00 PM CT; 8:45-9:00 is the prime window
 const RULES = {
   WIN_START: 8*60+45, WIN_END: 9*60,     // CT minutes: trigger window 8:45-9:00
@@ -1619,9 +1622,11 @@ function App(){
   const refreshRef = useRef(refreshLive); refreshRef.current = refreshLive;
   useEffect(()=>{ if(mode!=='live') return;
     refreshRef.current(true);
-    let k=0; const id=setInterval(()=>{ k++; const {min,wd}=ctParts(Date.now()); if(wd==='Sat'||wd==='Sun') return;
-      if(min>=RULES.OPEN-15&&min<=RULES.FLAT+5) refreshRef.current(false);
-      else if(min>RULES.FLAT+5 && min<=19*60 && k%2===0) refreshRef.current(false); }, 30000);
+    // session: every 30 s in the Claude app; on the cloud server every 2 s (stream on) or 10 s (stream off). After the session: every 60 s.
+    let last=Date.now(); const id=setInterval(()=>{ const {min,wd}=ctParts(Date.now()); if(wd==='Sat'||wd==='Sun') return; const n=Date.now();
+      const every = CLOUD ? (STREAMING()? 2000 : 10000) : 30000;
+      if(min>=RULES.OPEN-15&&min<=RULES.FLAT+5){ if(n-last>=every-500){ last=n; refreshRef.current(false); } }
+      else if(min>RULES.FLAT+5 && min<=19*60 && n-last>=59000){ last=n; refreshRef.current(false); } }, CLOUD?1000:30000);
     return ()=>clearInterval(id);
   },[mode, mcp]); // eslint-disable-line
 

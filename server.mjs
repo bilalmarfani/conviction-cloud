@@ -31,6 +31,8 @@ const CFG = {
   engineToken: process.env.ENGINE_TOKEN || crypto.randomBytes(18).toString('hex'),
   gitSync: process.env.GIT_SYNC !== 'off',
   exportKey: process.env.EXPORT_KEY || '',
+  stream: process.env.STREAM !== 'off',
+  streamUrl: process.env.STREAM_URL || 'wss://socket.massive.com/stocks',
 };
 const BOARDS = {
   v3: { file: 'boards/v3.html', title: 'Conviction Board v3', engineOnly: ['v3trades', 'v3signals'] },
@@ -159,6 +161,202 @@ function loadFeeds() {
   }
 }
 
+/* ------------------------------------------------------------------ live stream (Massive WebSocket) */
+// One connection to Massive's real-time stocks stream. Per-second (A) and per-minute (AM) aggregates keep today's
+// 1-minute bars and last prices in memory, so the boards' bar and snapshot requests are answered here in milliseconds
+// instead of a round trip to Massive. Today's bars are first filled from Massive's REST data, then kept current by the
+// stream, and re-checked against REST every 5 minutes. If the stream is down, not in the plan, or in use elsewhere
+// (Massive allows one stream connection per key), every request goes to Massive exactly as before.
+const ST = { ws: null, state: 'off', authed: false, gen: 0, want: new Set(), sent: new Set(), bars: {}, last: {}, seeded: {}, seededAt: {}, seeding: {},
+  msgs: 0, events: 0, lastMsgAt: 0, lastDataAt: 0, connectedAt: 0, lastErr: null, retryMs: 1000, timer: null, served: 0, passed: 0 };
+const STREAM_MAX = 400;
+const ETF = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' });
+const etDate = ms => ETF.format(new Date(ms));
+function csvSplit(ln) {
+  const out = []; let cur = '', q = false;
+  for (let i = 0; i < ln.length; i++) { const ch = ln[i];
+    if (q) { if (ch === '"') { if (ln[i + 1] === '"') { cur += '"'; i++; } else q = false; } else cur += ch; }
+    else if (ch === '"') q = true; else if (ch === ',') { out.push(cur); cur = ''; } else cur += ch; }
+  out.push(cur); return out;
+}
+function csvParse(text) {
+  let header = null; const rows = [];
+  for (const raw of String(text || '').split('\n')) { const ln = raw.replace(/\r$/, ''); if (!ln.trim()) { if (header) break; continue; }
+    const cells = csvSplit(ln); if (!header) { header = cells; continue; } if (cells.length !== header.length) break;
+    const o = {}; header.forEach((h, i) => { o[h] = cells[i]; }); rows.push(o); }
+  return { header: header || [], rows };
+}
+const csvCell = v => { const s = v == null ? '' : String(v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+const numCell = x => Number.isFinite(+x) ? String(+x) : '';
+
+function streamStart() {
+  if (!CFG.stream) { ST.state = 'off'; return; }
+  if (!CFG.massiveKey) { ST.state = 'no key'; return; }
+  if (typeof WebSocket !== 'function') { ST.state = 'unavailable'; ST.lastErr = 'this Node.js has no built-in WebSocket (needs Node 22+)'; log('stream:', ST.lastErr); return; }
+  if (ST.ws) return;
+  clearTimeout(ST.timer); ST.timer = null;
+  let ws; try { ws = new WebSocket(CFG.streamUrl); } catch (e) { return streamRetry('connect failed: ' + e.message); }
+  ST.ws = ws; ST.state = 'connecting'; ST.authed = false; ST.sent = new Set();
+  ws.onopen = () => { try { ws.send(JSON.stringify({ action: 'auth', params: CFG.massiveKey })); } catch (e) { } };
+  ws.onmessage = (m) => {
+    if (ST.ws !== ws) return; ST.lastMsgAt = Date.now(); ST.msgs++;
+    let evs; try { evs = JSON.parse(typeof m.data === 'string' ? m.data : String(m.data)); } catch (e) { return; }
+    if (!Array.isArray(evs)) evs = [evs];
+    for (const ev of evs) { try { streamEvent(ws, ev); } catch (e) { } }
+  };
+  ws.onerror = (e) => { ST.lastErr = 'socket error' + (e && e.message ? ': ' + e.message : ''); };
+  ws.onclose = (e) => {
+    if (ST.ws !== ws) return; const was = ST.authed; ST.ws = null; ST.authed = false; streamGap();
+    streamRetry(`connection closed (${(e && e.code) || '?'}${e && e.reason ? ' ' + e.reason : ''})${was ? '' : ' before sign-in'}`);
+  };
+}
+function streamRetry(why, waitMs) {
+  ST.lastErr = why; if (ST.state !== 'blocked') ST.state = 'reconnecting';
+  const ms = waitMs || ST.retryMs; ST.retryMs = Math.min(60000, ST.retryMs * 2);
+  log('stream:', why, '- trying again in', Math.round(ms / 1000) + 's');
+  clearTimeout(ST.timer); ST.timer = setTimeout(() => { ST.timer = null; if (ST.state === 'blocked') ST.state = 'reconnecting'; streamStart(); }, ms);
+}
+function streamDrop(ws) { if (ST.ws === ws) ST.ws = null; ST.authed = false; streamGap(); try { ws.close(); } catch (e) { } }
+// anything missed while disconnected: every ticker is re-filled from REST before it is served from the stream again
+function streamGap() { ST.gen++; ST.seeded = {}; }
+function streamEvent(ws, ev) {
+  if (!ev || typeof ev !== 'object') return;
+  if (ev.ev === 'status') {
+    const st = String(ev.status || ''), msg = String(ev.message || '');
+    if (st === 'auth_success') { ST.authed = true; ST.state = 'live'; ST.connectedAt = Date.now(); ST.lastDataAt = 0; ST.retryMs = 1000; ST.lastErr = null; log('stream: signed in'); streamSubscribe(); return; }
+    if (st === 'auth_failed' || st === 'max_connections' || /not authorized|not entitled/i.test(msg)) {
+      const why = st === 'max_connections' ? 'Massive allows one stream connection per key and another program is using it'
+        : st === 'auth_failed' ? 'Massive did not accept the API key for streaming' : 'your Massive plan does not include this stream';
+      ST.state = 'blocked'; streamDrop(ws);
+      streamRetry(why + ' (' + msg.slice(0, 160) + '); using regular requests meanwhile', st === 'max_connections' ? 3 * 60000 : 10 * 60000);
+    }
+    return;  // connected, subscribed, etc.
+  }
+  if (ev.ev === 'A' || ev.ev === 'AM') { ST.events++; ST.lastDataAt = Date.now(); streamBar(ev); }
+}
+function streamSubscribe() {
+  if (!ST.authed || !ST.ws) return;
+  const add = [...ST.want].filter(s => !ST.sent.has(s)); if (!add.length) return;
+  for (let i = 0; i < add.length; i += 100) {
+    const part = add.slice(i, i + 100);
+    try { ST.ws.send(JSON.stringify({ action: 'subscribe', params: part.map(s => `A.${s},AM.${s}`).join(',') })); for (const s of part) ST.sent.add(s); } catch (e) { }
+  }
+  log('stream: following', add.length, 'more tickers,', ST.sent.size, 'in all');
+}
+let subTimer = null;
+function streamWant(syms) {
+  let n = 0;
+  for (const s of syms) { if (ST.want.has(s) || ST.want.size >= STREAM_MAX || !/^[A-Z][A-Z0-9.]{0,9}$/.test(s)) continue; ST.want.add(s); n++; }
+  if (n && !subTimer) subTimer = setTimeout(() => { subTimer = null; streamSubscribe(); }, 50);
+}
+function symBars(sym, date) { let B = ST.bars[sym]; if (!B || B.date !== date) B = ST.bars[sym] = { date, m: new Map() }; return B; }
+function streamBar(ev) {
+  const sym = ev.sym; if (!sym || !(ev.s > 0) || !Number.isFinite(+ev.c)) return;
+  const t = Math.floor(ev.s / 60000) * 60000, date = etDate(t), B = symBars(sym, date), cur = B.m.get(t), e = +ev.e || +ev.s;
+  if (ev.ev === 'AM') B.m.set(t, { t, o: +ev.o, h: +ev.h, l: +ev.l, c: +ev.c, v: +ev.v, vw: +ev.vw, n: (cur && cur.n) || 0, e, fin: true });  // the finished minute
+  else if (!cur) B.m.set(t, { t, o: +ev.o, h: +ev.h, l: +ev.l, c: +ev.c, v: +ev.v, vw: +ev.vw, n: 0, e, fin: false });
+  else {
+    if (+ev.h > cur.h) cur.h = +ev.h; if (+ev.l < cur.l) cur.l = +ev.l; if (e >= cur.e) { cur.c = +ev.c; cur.e = e; }
+    if (!cur.fin) { const v = cur.v + (+ev.v || 0); if (v > 0 && Number.isFinite(+ev.vw)) cur.vw = (cur.vw * cur.v + ev.vw * ev.v) / v; cur.v = v; }
+  }
+  if (ev.ev === 'A') { const L = ST.last[sym]; const same = L && L.date === date;
+    if (!L || e >= L.e) ST.last[sym] = { c: +ev.c, e, av: +ev.av || (same ? L.av : 0), date, h: same ? Math.max(L.h, +ev.h) : +ev.h, l: same ? Math.min(L.l, +ev.l) : +ev.l }; }
+}
+// Fill (or re-check) today's minute bars from REST. REST is complete for every minute before its newest bar; the newest
+// minute is still forming, so it is merged with whatever the stream has seen since.
+function streamSeed(sym, date, force) {
+  if (!force && ST.seeded[sym] === date) return Promise.resolve(true);
+  if (ST.seeding[sym]) return ST.seeding[sym];
+  const gen = ST.gen;
+  const p = (async () => {
+    const t0 = Date.now();
+    const r = await callMassive({ path: `/v2/aggs/ticker/${sym}/range/1/minute/${date}/${date}`, params: { adjusted: 'true', sort: 'asc', limit: 50000 } });
+    const { header, rows } = csvParse(r.payload.result);
+    if (!header.includes('t') || !header.includes('c')) throw new Error('unexpected bar data for ' + sym);
+    if (!ST.authed || ST.gen !== gen) return false;  // the stream dropped meanwhile: serve from REST this time
+    const B = symBars(sym, date); let lastT = 0;
+    for (const x of rows) if (+x.t > lastT) lastT = +x.t;
+    for (const x of rows) {
+      const t = +x.t; if (!(t > 0)) continue;
+      const bar = { t, o: +x.o, h: +x.h, l: +x.l, c: +x.c, v: +x.v, vw: +x.vw, n: +x.n || 0, e: t0, fin: t < lastT };
+      const cur = B.m.get(t);
+      if (!cur || (t < lastT && !cur.fin)) { B.m.set(t, bar); continue; }
+      if (cur.fin) continue;
+      B.m.set(t, { ...bar, h: Math.max(bar.h, cur.h), l: Math.min(bar.l, cur.l), c: cur.e > t0 ? cur.c : bar.c, v: Math.max(bar.v, cur.v), e: Math.max(t0, cur.e), fin: false });
+    }
+    ST.seeded[sym] = date; ST.seededAt[sym] = Date.now(); return true;
+  })().finally(() => { delete ST.seeding[sym]; });
+  ST.seeding[sym] = p; return p;
+}
+function barsCsv(sym, date) {
+  const B = ST.bars[sym]; const arr = B && B.date === date ? [...B.m.values()].sort((a, b) => a.t - b.t) : [];
+  return 'v,vw,o,c,h,l,t,n\n' + arr.map(b => [b.v, b.vw, b.o, b.c, b.h, b.l, b.t, b.n].map(numCell).join(',')).join('\n') + (arr.length ? '\n' : '');
+}
+// Snapshot: Massive's REST snapshot (refreshed every 20 s, for previous-day and quote fields) with the stream's latest trade on top
+const SNAP = { rows: new Map(), asked: new Set(), header: null, at: 0, loading: null };
+async function snapBase(syms) {
+  const missing = syms.some(s => !SNAP.asked.has(s));
+  if ((missing || Date.now() - SNAP.at > 20000) && !SNAP.loading) {
+    SNAP.loading = callMassive({ path: '/v2/snapshot/locale/us/markets/stocks/tickers', params: { tickers: syms.join(',') } }).then(r => {
+      const { header, rows } = csvParse(r.payload.result); if (!header.includes('ticker')) throw new Error('unexpected snapshot data');
+      SNAP.header = header; for (const x of rows) SNAP.rows.set(x.ticker, x); for (const s of syms) SNAP.asked.add(s); SNAP.at = Date.now();
+    }).finally(() => { SNAP.loading = null; });
+    SNAP.loading.catch(() => { });
+  }
+  if ((missing || !SNAP.header) && SNAP.loading) await SNAP.loading;  // first time: wait; afterwards refresh in the background
+}
+async function snapLive(q) {
+  const syms = String(q.tickers || '').split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+  if (!syms.length || syms.length > STREAM_MAX) return null;
+  streamWant(syms); await snapBase(syms);
+  const H = SNAP.header; if (!H || !ST.authed) return null;
+  const today = etDate(Date.now()); const lines = [H.map(csvCell).join(',')];
+  for (const s of syms) {
+    const base = SNAP.rows.get(s); if (!base) continue; const x = { ...base }; const L = ST.last[s];
+    if (L && L.date === today && L.e * 1e6 > (+x.lastTrade_t || 0)) {
+      const ns = String(BigInt(Math.round(L.e)) * 1000000n);
+      x.lastTrade_p = L.c; x.lastTrade_t = ns; x.updated = ns; x.day_c = L.c; x.min_c = L.c;
+      x.day_h = +x.day_h > 0 ? Math.max(+x.day_h, L.h) : L.h; x.day_l = +x.day_l > 0 ? Math.min(+x.day_l, L.l) : L.l;
+      if (L.av > (+x.day_v || 0)) x.day_v = L.av;
+      const pc = +x.prevDay_c; if (pc > 0) { x.todaysChange = +(L.c - pc).toFixed(4); x.todaysChangePerc = (L.c / pc - 1) * 100; }
+    }
+    lines.push(H.map(k => csvCell(x[k])).join(','));
+  }
+  return lines.join('\n') + '\n';
+}
+// Answer a board's request from the stream when it can be; null means "ask Massive as usual"
+async function tryLive(input) {
+  if (!ST.authed) return null;
+  const p = String(input.path || ''), q = input.params || {}, today = etDate(Date.now());
+  const bm = /^\/v2\/aggs\/ticker\/([A-Z][A-Z0-9.]{0,9})\/range\/1\/minute\/(\d{4}-\d\d-\d\d)\/(\d{4}-\d\d-\d\d)$/.exec(p);
+  if (bm && bm[2] === today && bm[3] === today && String(q.adjusted ?? 'true') === 'true' && String(q.sort ?? 'asc') === 'asc' && !q.cursor && (q.limit == null || +q.limit >= 5000)) {
+    const sym = bm[1]; streamWant([sym]);
+    if (!ST.sent.has(sym)) await new Promise(r => setTimeout(r, 120));  // let the subscription go out before filling from REST
+    if (!ST.sent.has(sym) || !(await streamSeed(sym, today))) return null;
+    if (Date.now() - (ST.seededAt[sym] || 0) > 5 * 60000) streamSeed(sym, today, true).catch(() => { });
+    return barsCsv(sym, today);
+  }
+  if (p === '/v2/snapshot/locale/us/markets/stocks/tickers' && q.tickers && Object.keys(q).length === 1) return snapLive(q);
+  return null;
+}
+// Requests that go to Massive: identical requests within 2 seconds share one answer (several open pages ask the same thing)
+const PASS = new Map();
+function cachedMassive(input) {
+  const k = JSON.stringify(input), n = Date.now(), c = PASS.get(k);
+  if (c && (c.pending || n - c.at < 2000)) return c.p;
+  const ent = { at: n, pending: true, p: callMassive(input) }; PASS.set(k, ent);
+  ent.p.then(() => { ent.pending = false; ent.at = Date.now(); }, () => { if (PASS.get(k) === ent) PASS.delete(k); });
+  if (PASS.size > 300) for (const [kk, v] of PASS) if (!v.pending && n - v.at > 2000) PASS.delete(kk);
+  return ent.p;
+}
+// A connection can go quiet without closing: during market hours, reconnect if the data stops for 30 seconds
+setInterval(() => {
+  if (!CFG.stream) return;
+  if (!ST.ws && !ST.timer && ST.state !== 'off' && ST.state !== 'unavailable' && ST.state !== 'no key') streamStart();
+  const t = ctNow(); const session = t.wd !== 'Sat' && t.wd !== 'Sun' && t.min >= 8 * 60 + 30 && t.min < 15 * 60;
+  if (ST.authed && session && ST.lastDataAt && Date.now() - ST.lastDataAt > 30000) { log('stream: no data for 30 s during market hours, reconnecting'); streamDrop(ST.ws); streamRetry('went quiet during market hours', 1000); }
+}, 5000);
+
 /* ------------------------------------------------------------------ http */
 const SHIM = fs.readFileSync(path.join(ROOT, 'shim.js'), 'utf8');
 function boardHtml(board, engine) {
@@ -207,10 +405,14 @@ const server = http.createServer(async (req, res) => {
       const b = await readBody(req);
       try {
         let r;
-        if (b.server === 'host:massive' && b.tool === 'call_api') r = await callMassive(b.input || {});
+        if (b.server === 'host:massive' && b.tool === 'call_api') {
+          const inp = b.input || {}; let live = null;
+          try { live = await tryLive(inp); } catch (e) { live = null; }
+          if (live != null) { ST.served++; r = { payload: { result: live } }; } else { ST.passed++; r = await cachedMassive(inp); }
+        }
         else if (b.server === 'host:evaluate' && b.tool === 'evaluate') r = await callJev(b.input || {});
         else throw { code: 'server_not_connected', message: `${b.server} is not available on the cloud server` };
-        return send(res, 200, { result: r });
+        return send(res, 200, { result: r, live: ST.authed });
       } catch (e) { return send(res, 502, { error: { code: e.code || 'error', message: e.message || String(e), retryAfterMs: e.retryAfterMs } }); }
     }
     const dm = /^\/api\/db\/(v2|v3)\/([A-Za-z0-9_\-.]+)(?:\/([A-Za-z0-9_\-.~:@+]+))?$/.exec(p);
@@ -244,6 +446,8 @@ function health() {
     now: new Date().toISOString(), uptimeMin: Math.round(process.uptime() / 60),
     massive: { connected: !!M.client, lastOkAgoSec: M.okAt ? Math.round((Date.now() - M.okAt) / 1000) : null, calls: M.calls, fails: M.fails, lastErr: M.lastErr, keySet: !!CFG.massiveKey },
     jev: { on: !!CFG.anthropicKey, calls: JEV.calls, lastErr: JEV.lastErr },
+    stream: { state: ST.state, live: ST.authed, tickers: ST.sent.size, filled: Object.keys(ST.seeded).length, lastDataAgoSec: ST.lastDataAt ? Math.round((Date.now() - ST.lastDataAt) / 1000) : null,
+      events: ST.events, answeredFromStream: ST.served, sentToMassive: ST.passed, lastErr: ST.lastErr },
     engine: ENG.status(),
     data: { v3Trades: Object.keys(v3.v3trades || {}).length, v3Open: open3, v2Paper: Object.keys(v2.paper || {}).length, earningsAsOf: ((v3.v3earn || {}).next || {}).asOf || null, crowdAsOf: ((v3.v3earn || {}).crowd || {}).asOf || null },
     version: GIT.head, log: LOG.slice(-40),
@@ -263,6 +467,8 @@ a.b b{font-size:18px}.ok{color:var(--go)}.bad{color:var(--warn)}ul{padding-left:
 <a class="b" href="/v2"><b>Conviction Engine v2 →</b><div class="mut">Opening-range play cards</div></a>
 <h2 style="font-size:16px">Status</h2><ul>
 <li>Market data (Massive): <span class="${h.massive.lastOkAgoSec != null && h.massive.lastOkAgoSec < 120 ? 'ok' : 'bad'}">${h.massive.keySet ? 'last good reply ' + ago(h.massive.lastOkAgoSec) : 'API key missing'}</span>${h.massive.lastErr ? ' · last problem: ' + escapeHtml(String(h.massive.lastErr).slice(0, 140)) : ''}</li>
+<li>Live stream: ${h.stream.live ? `<span class="ok">on</span> · ${h.stream.tickers} tickers · last update ${ago(h.stream.lastDataAgoSec)} · ${h.stream.answeredFromStream} requests answered from the stream, ${h.stream.sentToMassive} sent to Massive`
+    : `<span class="bad">${escapeHtml(h.stream.state)}</span> · boards use regular Massive requests`}${h.stream.lastErr ? ' · ' + escapeHtml(String(h.stream.lastErr).slice(0, 180)) : ''}</li>
 ${pg || '<li>Engine not started</li>'}
 <li>Jev news score: ${h.jev.on ? 'on' : 'off (no Anthropic API key)'}</li>
 <li>v3 paper trades: ${h.data.v3Trades} (${h.data.v3Open} open) · v2 log entries: ${h.data.v2Paper}</li>
@@ -349,6 +555,7 @@ server.listen(CFG.port, CFG.host, async () => {
   await gitSync().catch(e => log('git', e.message));
   setInterval(() => gitSync().catch(e => log('git', e.message)), 15 * 60000);
   massiveClient().catch(e => log('massive start failed:', e.message));
+  streamStart();
   ENG.start();
 });
 for (const sig of ['SIGTERM', 'SIGINT']) process.on(sig, () => { for (const b of [...DIRTY]) { try { fs.writeFileSync(dbFile(b), JSON.stringify(DB[b])); } catch (e) { } } process.exit(0); });

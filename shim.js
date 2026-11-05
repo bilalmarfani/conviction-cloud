@@ -9,7 +9,8 @@
       return r.json().catch(function(){ return {}; }).then(function(j){ if(!r.ok || j.error) throw (j.error || {code:'error', message:'HTTP '+r.status}); return j; });
     }, function(e){ throw {code:'server_unavailable', message:'Cannot reach the board server: '+(e && e.message)}; });
   }
-  var mcp = { callTool: function(server, tool, input){ return post('/api/mcp', {server:server, tool:tool, input:input||{}}).then(function(j){ return j.result; }); } };
+  // the server says with every reply whether its live stream is on; the boards read window.__CC.live to pick their pace
+  var mcp = { callTool: function(server, tool, input){ return post('/api/mcp', {server:server, tool:tool, input:input||{}}).then(function(j){ if('live' in j) CC.live = !!j.live; return j.result; }); } };
 
   // database: collections cached here, refreshed by server push
   var cache = {}, subs = {}, es = null;

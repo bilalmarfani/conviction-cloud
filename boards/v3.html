@@ -712,7 +712,11 @@ const sleep = ms => new Promise(r=>setTimeout(r,ms));
 /* ---------- Request budget: the Claude app caps how many local tool calls a page makes per minute (shared by every open board).
    One governor paces every call: priority 0 = trade management, 1 = live data, 2 = scans, 3 = backtests.
    On "rate_limited" it pauses, cuts the pace by 40%, and creeps back up after 2 quiet minutes. ---------- */
-const GOV={rate:36, max:90, min:6, tokens:2, last:Date.now(), pausedUntil:0, okSince:Date.now(), queue:[], timer:null, limited:0, lastLimitAt:0};
+/* On the cloud server there is no Claude-app cap: data comes from the server's live stream (or Massive directly), so the governor runs far higher. */
+const CLOUD = !!(window.__CC && window.__CC.board);
+const STREAMING = ()=> CLOUD && window.__CC.live !== false;   // the server reports whether its live stream is on
+const PACE = ()=> STREAMING()? 2000 : 5000;                     // cloud refresh pace: 2 s on the stream, 5 s on regular requests
+const GOV={rate:CLOUD?1200:36, max:CLOUD?1200:90, min:6, tokens:2, last:Date.now(), pausedUntil:0, okSince:Date.now(), queue:[], timer:null, limited:0, lastLimitAt:0};
 function govRefill(){ const n=Date.now(); GOV.tokens=Math.min(Math.max(1,GOV.rate/20), GOV.tokens+(n-GOV.last)/60000*GOV.rate); GOV.last=n; }
 function govSched(ms){ if(GOV.timer) return; GOV.timer=setTimeout(()=>{ GOV.timer=null; govPump(); }, Math.max(30,ms)); }
 function govPump(){ govRefill(); const n=Date.now(); if(n<GOV.pausedUntil){ govSched(GOV.pausedUntil-n); return; }
@@ -721,7 +725,7 @@ function govPump(){ govRefill(); const n=Date.now(); if(n<GOV.pausedUntil){ govS
 function govTake(pr){ return new Promise(r=>{ GOV.queue.push({pr, t:Date.now(), go:r}); govPump(); }); }
 function govLimited(ms){ const n=Date.now(); if(n-GOV.lastLimitAt>5000) GOV.rate=Math.max(GOV.min, Math.round(GOV.rate*0.6)); GOV.lastLimitAt=n; GOV.limited++; GOV.tokens=0; GOV.okSince=n; GOV.pausedUntil=Math.max(GOV.pausedUntil, n+Math.max(ms||0, 15000)); }
 function govOk(){ const n=Date.now(); if(n-GOV.okSince>120000 && GOV.rate<GOV.max){ GOV.rate=Math.min(GOV.max, GOV.rate+4); GOV.okSince=n; } }
-const LANES={live:{active:0,max:2,wait:[]}, bulk:{active:0,max:1,wait:[]}};
+const LANES={live:{active:0,max:CLOUD?8:2,wait:[]}, bulk:{active:0,max:CLOUD?2:1,wait:[]}};
 const PRI={mgmt:0, live:1, bulk:2, bt:3};
 const ERRLOG=[]; const STATS={ok:0, fail:0, retried:0};
 async function slot(lane, fn){ const Lq=LANES[lane]||LANES.live; if(Lq.active>=Lq.max) await new Promise(r=>Lq.wait.push(r)); Lq.active++; try{ return await fn(); } finally{ Lq.active--; const w=Lq.wait.shift(); if(w) w(); } }
@@ -1079,9 +1083,10 @@ function App(){
     const Lc=L.current, t=now(); const list=Lc.inPlay; if(!list.length) return;
     // open-trade tickers first, then round-robin through in-play
     const openSyms=[...new Set(tradesRef.current.filter(x=>x.status==='open' && INTRA(x.tab) && x.date===t.date).map(x=>x.sym))];
-    const batch=[]; for(const s of openSyms) if(!batch.includes(s) && (Date.now()-((Lc.b1[s]||{}).at||0))>15000) batch.push(s);
-    let guard=0; while(batch.length<1 && guard++<list.length){ const s=list[Lc.q % list.length]; Lc.q=(Lc.q+1)%1e6; if(!batch.includes(s)) batch.push(s); }
-    await Promise.all(batch.slice(0,2).map(async sym=>{
+    const batch=[]; for(const s of openSyms) if(!batch.includes(s) && (Date.now()-((Lc.b1[s]||{}).at||0))>(CLOUD?1000:15000)) batch.push(s);
+    // cloud: every in-play ticker each pass (the server answers from its stream); Claude app: one per pass, round-robin
+    let guard=0; while((CLOUD || batch.length<1) && guard++<list.length){ const s=list[Lc.q % list.length]; Lc.q=(Lc.q+1)%1e6; if(!batch.includes(s)) batch.push(s); }
+    await Promise.all(batch.slice(0,CLOUD?40:2).map(async sym=>{
       try{
         if(!Lc.daily[sym] || Lc.daily[sym].date!==t.date) await loadDaily(sym);
         const bars=await loadBars(sym, t.date); Lc.b1[sym]={bars, at:Date.now()};
@@ -1187,10 +1192,10 @@ function App(){
     const run = async (name, fn)=>{ const B=L.current.busy; if(B[name]) return; B[name]=true; try{ await fn(); }catch(e){} finally{ B[name]=false; } };
     const id=setInterval(()=>{ if(stop) return; const Lc=L.current, n=Date.now(), ph=phase();
       const live = ph==='open'||ph==='pre';
-      if(window.__VIEWER){ if(n>=Lc.next.snap){ Lc.next.snap=n+(live?15000:300000); run('snap', doSnapshot); } setTick(x=>(x+1)%1e9); return; }  // cloud viewer: show prices, the always-on server copy trades
-      if(n>=Lc.next.snap){ Lc.next.snap=n+(live?15000:300000); run('snap', async()=>{ await doSnapshot(); await manageTick(); for(const s of Lc.inPlay) detectFor(s,true); }); }
-      if(live && n>=Lc.next.bars){ Lc.next.bars=n+6000; run('bars', doBars); }
-      if(ph==='open' && n>=Lc.next.marks){ Lc.next.marks=n+60000; run('marks', doMarks); }
+      if(window.__VIEWER){ if(n>=Lc.next.snap){ Lc.next.snap=n+(live?(CLOUD?PACE():15000):300000); run('snap', doSnapshot); } setTick(x=>(x+1)%1e9); return; }  // cloud viewer: show prices, the always-on server copy trades
+      if(n>=Lc.next.snap){ Lc.next.snap=n+(live?(CLOUD?PACE():15000):300000); run('snap', async()=>{ await doSnapshot(); await manageTick(); for(const s of Lc.inPlay) detectFor(s,true); }); }
+      if(live && n>=Lc.next.bars){ Lc.next.bars=n+(CLOUD?PACE():6000); run('bars', doBars); }
+      if(ph==='open' && n>=Lc.next.marks){ Lc.next.marks=n+(CLOUD?15000:60000); run('marks', doMarks); }
       if(n>=Lc.next.scan){ Lc.next.scan=n+10*60000; const t=now(); if(t.min>=360 || ph==='weekend') run('scan', ()=>runScan(false)); }
       if(ph==='open') run('swe', swingEntries);
       if(ph==='open' && n>=(Lc.next.td||0)){ Lc.next.td=n+180000; run('tde', tdEntries); }
