@@ -56,7 +56,7 @@ async function massiveClient() {
     transport.onclose = () => { if (M.client === c) { M.client = null; log('massive: connection closed, will reconnect on next call'); } };
     // capture the data server's own messages from the start, so a startup failure shows its reason
     M.stderr = [];
-    try { transport.stderr && transport.stderr.on('data', d => { for (const ln of String(d).split('\n')) { const t = ln.trim(); if (!t) continue; M.stderr.push(t); if (M.stderr.length > 30) M.stderr.shift(); log('massive:', t.slice(0, 300)); } }); } catch (e) { }
+    try { transport.stderr && transport.stderr.on('data', d => { for (const ln of String(d).split('\n')) { const t = ln.trim(); if (!t || /Processing request of type/.test(t)) continue; M.stderr.push(t); if (M.stderr.length > 30) M.stderr.shift(); log('massive:', t.slice(0, 300)); } }); } catch (e) { }
     try { await c.connect(transport); }
     catch (e) { await new Promise(r => setTimeout(r, 300)); const tail = (M.stderr || []).slice(-4).join(' | '); throw new Error(e.message + (tail ? ' — ' + tail : '')); }
     M.client = c; log('massive: connected');

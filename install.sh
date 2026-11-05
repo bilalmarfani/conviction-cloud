@@ -33,7 +33,8 @@ node -v
 say "3/7 Installing the Massive market-data server"
 if ! command -v uv >/dev/null && [ ! -x /root/.local/bin/uv ]; then curl -LsSf https://astral.sh/uv/install.sh | sh >/dev/null; fi
 export PATH="/root/.local/bin:$PATH"
-uv tool install --force "mcp_massive @ git+https://github.com/massive-com/mcp_massive@${MASSIVE_REF}" >/dev/null
+# mcp 2.x renamed its APIs; this Massive release needs mcp 1.x
+uv tool install --force "mcp_massive @ git+https://github.com/massive-com/mcp_massive@${MASSIVE_REF}" --with "mcp>=1.27,<2" >/dev/null
 MASSIVE_BIN=$(command -v mcp_massive)
 echo "$MASSIVE_BIN"
 
