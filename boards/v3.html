@@ -1,0 +1,1610 @@
+<title>Conviction Board v3</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: header with data-health light; four account tiles (one per $50K paper account); tab bar; each tab = account strip, open positions, live signals, closed trades, backtest. Terminal look carried over from v2, dark-first with a light variant. */
+:root{
+  --bg:#0a0e13; --panel:#11171f; --panel-2:#161e28; --line:#223040; --line-2:#2c3b4d;
+  --fg:#d9e2ec; --muted:#8193a6; --dim:#5a6a7e; --accent:#5fb4ff; --accent-ink:#04121f;
+  --go:#2bea7c; --go-ink:#03140a; --go-soft:rgba(43,234,124,.13);
+  --warn:#ff5a5f; --warn-soft:rgba(255,90,95,.13);
+  --amber:#ffc24b; --amber-soft:rgba(255,194,75,.12);
+  --gold:#e8c15a; --pink:#ff6fb5;
+  --f-display:"Barlow Condensed","Arial Narrow",system-ui,sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  color-scheme:dark;
+}
+@media (prefers-color-scheme: light){ :root:not([data-theme="dark"]){
+  --bg:#f3f5f8; --panel:#ffffff; --panel-2:#eef2f6; --line:#d6dde6; --line-2:#c3cdd9;
+  --fg:#111a24; --muted:#56667a; --dim:#7c8a9c; --accent:#1769c2; --accent-ink:#ffffff;
+  --go:#0f8f4a; --go-ink:#ffffff; --go-soft:rgba(15,143,74,.10);
+  --warn:#c9302c; --warn-soft:rgba(201,48,44,.09);
+  --amber:#a86a00; --amber-soft:rgba(168,106,0,.10); --gold:#8a6a00; --pink:#b8306f; color-scheme:light; } }
+:root[data-theme="light"]{
+  --bg:#f3f5f8; --panel:#ffffff; --panel-2:#eef2f6; --line:#d6dde6; --line-2:#c3cdd9;
+  --fg:#111a24; --muted:#56667a; --dim:#7c8a9c; --accent:#1769c2; --accent-ink:#ffffff;
+  --go:#0f8f4a; --go-ink:#ffffff; --go-soft:rgba(15,143,74,.10);
+  --warn:#c9302c; --warn-soft:rgba(201,48,44,.09);
+  --amber:#a86a00; --amber-soft:rgba(168,106,0,.10); --gold:#8a6a00; --pink:#b8306f; color-scheme:light; }
+html,body{background:var(--bg);color:var(--fg)}
+body{font-family:var(--f-body);font-size:14px;line-height:1.45}
+.wrap{max-width:1320px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:16px 60px;display:grid;gap:14px}
+.num{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+h1{font-family:var(--f-display);font-weight:700;font-size:30px;letter-spacing:.02em;margin:0;line-height:1;text-wrap:balance}
+h2{font-family:var(--f-display);font-weight:700;font-size:18px;letter-spacing:.06em;margin:0;text-transform:uppercase}
+h3{font-family:var(--f-display);font-weight:600;font-size:15px;letter-spacing:.06em;margin:0;text-transform:uppercase;color:var(--muted)}
+p{margin:0}
+.sub{color:var(--muted);font-size:13px}
+.note{color:var(--muted);font-size:12px}
+.err{color:var(--warn);font-size:12.5px}
+.top{display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px;align-items:flex-end}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.between{justify-content:space-between}
+.chip{font-family:var(--f-display);font-weight:600;letter-spacing:.08em;text-transform:uppercase;font-size:12px;padding:3px 9px;border:1px solid var(--line-2);border-radius:4px;color:var(--muted);white-space:nowrap}
+.chip.ok{color:var(--go);border-color:var(--go)} .chip.bad{color:var(--warn);border-color:var(--warn)} .chip.mid{color:var(--amber);border-color:var(--amber)}
+.health{display:inline-flex;align-items:center;gap:7px}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--dim);box-shadow:0 0 0 3px var(--panel-2)}
+.dot.ok{background:var(--go)} .dot.mid{background:var(--amber)} .dot.bad{background:var(--warn)}
+button,select,input{font:inherit;color:var(--fg);background:var(--panel-2);border:1px solid var(--line-2);border-radius:6px;padding:6px 10px}
+button{cursor:pointer}
+button:hover:not(:disabled){border-color:var(--accent)}
+button:disabled{opacity:.45;cursor:default}
+button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:600}
+button.ghost{background:transparent}
+button.sm{padding:3px 8px;font-size:12px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px;display:grid;gap:10px;min-width:0;align-content:start}
+.banner{border:1px solid var(--warn);background:var(--warn-soft);color:var(--fg);border-radius:8px;padding:9px 12px;font-size:13px}
+.banner.info{border-color:var(--line-2);background:var(--panel-2)}
+.banner.amber{border-color:var(--amber);background:var(--amber-soft)}
+/* account tiles */
+.accts{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}
+@media (max-width:1150px){.accts{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media (max-width:640px){.accts{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.acct{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:grid;gap:4px;text-align:left;min-width:0}
+.acct.on{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}
+.acct .k{font-family:var(--f-display);font-weight:600;letter-spacing:.08em;text-transform:uppercase;font-size:12px;color:var(--muted);display:flex;justify-content:space-between;gap:6px}
+.acct .v{font-family:var(--f-mono);font-size:20px;font-weight:600}
+.acct .s{font-family:var(--f-mono);font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.up{color:var(--go)} .dn{color:var(--warn)} .am{color:var(--amber)}
+.tabs{display:flex;gap:4px;flex-wrap:wrap;border-bottom:1px solid var(--line);padding-bottom:0}
+.tabs button{border:0;border-bottom:2px solid transparent;border-radius:0;background:transparent;font-family:var(--f-display);font-weight:600;letter-spacing:.07em;text-transform:uppercase;font-size:14px;padding:8px 12px;color:var(--muted)}
+.tabs button.on{color:var(--fg);border-bottom-color:var(--accent)}
+.tabs button .ct{font-family:var(--f-mono);font-size:11px;margin-left:6px;color:var(--go)}
+/* stats grid */
+.stats{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px}
+@media (max-width:900px){.stats{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media (max-width:480px){.stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.stat{background:var(--panel-2);border:1px solid var(--line);border-radius:6px;padding:7px 9px;min-width:0}
+.stat .k{font-family:var(--f-display);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.stat .v{font-family:var(--f-mono);font-size:16px;font-weight:600;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.split{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:14px}
+@media (max-width:960px){.split{grid-template-columns:minmax(0,1fr)}}
+.tbl{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:12.5px}
+th,td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+th{font-family:var(--f-display);font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-size:11px}
+td{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+td.l,th.l{text-align:left}
+td.sym{font-family:var(--f-display);font-weight:700;font-size:15px;letter-spacing:.03em}
+td.txt{font-family:var(--f-body);white-space:normal;min-width:180px;text-align:left;color:var(--muted)}
+tr.go td{background:var(--go-soft)}
+tr.pin td.sym{color:var(--gold)}
+.pill{font-family:var(--f-display);font-weight:700;letter-spacing:.08em;font-size:12px;padding:2px 8px;border-radius:4px;border:1px solid var(--line-2);color:var(--muted);white-space:nowrap;display:inline-block}
+.pill.open{color:var(--accent);border-color:var(--accent)} .pill.win{color:var(--go);border-color:var(--go)} .pill.loss{color:var(--warn);border-color:var(--warn)}
+.pill.call{color:var(--go);border-color:var(--go)} .pill.put{color:var(--warn);border-color:var(--warn)}
+.pill.cm{color:var(--gold);border-color:var(--gold)}
+.tag{font-size:11px;color:var(--muted);font-family:var(--f-mono)}
+.empty{color:var(--muted);font-size:13px;padding:10px 2px}
+.curve{width:100%;height:110px;display:block}
+.rules{display:grid;gap:6px;margin:0;padding-left:18px;font-size:13px}
+.prog{height:8px;background:var(--panel-2);border:1px solid var(--line);border-radius:4px;overflow:hidden}
+.prog>div{height:100%;background:var(--accent)}
+.form{display:flex;flex-wrap:wrap;gap:8px;align-items:end}
+.form label{display:grid;gap:3px;font-size:11px;color:var(--muted);font-family:var(--f-display);letter-spacing:.08em;text-transform:uppercase}
+.form input[type=text]{min-width:0;width:min(520px,100%)}
+.toasts{position:fixed;top:calc(12px + env(safe-area-inset-top,0px));right:max(12px,env(safe-area-inset-right,0px));display:grid;gap:8px;z-index:20;pointer-events:none;max-width:calc(100vw - 24px)}
+.toast{background:var(--go);color:var(--go-ink);font-family:var(--f-display);font-weight:700;letter-spacing:.05em;font-size:17px;padding:9px 14px;border-radius:6px}
+.toast.stop{background:var(--warn);color:#fff} .toast.info{background:var(--panel-2);color:var(--fg);border:1px solid var(--line-2)}
+details summary{cursor:pointer;color:var(--muted);font-family:var(--f-display);letter-spacing:.07em;text-transform:uppercase;font-size:13px}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:13px}
+.kv b{font-weight:500;color:var(--muted)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+/* ---- depth layer: static, GPU-composited; nothing animates at rest ---- */
+:root{ --panel-hi:#16202b; --edge:rgba(255,255,255,.06); --shadow:0 1px 0 rgba(255,255,255,.04) inset, 0 18px 40px -22px rgba(0,0,0,.85), 0 2px 6px -2px rgba(0,0,0,.5);
+  --grid:rgba(95,180,255,.045); --halo:rgba(95,180,255,.10); --halo2:rgba(43,234,124,.06); }
+@media (prefers-color-scheme: light){ :root:not([data-theme="dark"]){ --panel-hi:#ffffff; --edge:rgba(255,255,255,.9); --shadow:0 1px 0 rgba(255,255,255,.9) inset, 0 16px 34px -22px rgba(17,26,36,.35), 0 2px 6px -3px rgba(17,26,36,.18);
+  --grid:rgba(23,105,194,.05); --halo:rgba(23,105,194,.08); --halo2:rgba(15,143,74,.05); } }
+:root[data-theme="light"]{ --panel-hi:#ffffff; --edge:rgba(255,255,255,.9); --shadow:0 1px 0 rgba(255,255,255,.9) inset, 0 16px 34px -22px rgba(17,26,36,.35), 0 2px 6px -3px rgba(17,26,36,.18);
+  --grid:rgba(23,105,194,.05); --halo:rgba(23,105,194,.08); --halo2:rgba(15,143,74,.05); }
+body::before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;
+  background:radial-gradient(1100px 520px at 12% -8%, var(--halo), transparent 60%), radial-gradient(900px 480px at 100% 0%, var(--halo2), transparent 55%),
+  repeating-linear-gradient(0deg, var(--grid) 0 1px, transparent 1px 44px), repeating-linear-gradient(90deg, var(--grid) 0 1px, transparent 1px 44px)}
+body{background:var(--bg)}
+.wrap{position:relative}
+.panel{background:linear-gradient(180deg,var(--panel-hi),var(--panel));box-shadow:var(--shadow);border-color:var(--line)}
+.stat{box-shadow:0 1px 0 var(--edge) inset}
+.accts{perspective:900px}
+.acct{background:linear-gradient(160deg,var(--panel-hi),var(--panel));box-shadow:var(--shadow);transform:rotateX(var(--rx,0deg)) rotateY(var(--ry,0deg));transition:transform .18s ease-out, box-shadow .18s ease-out;cursor:pointer}
+.acct:hover{box-shadow:0 1px 0 var(--edge) inset, 0 26px 50px -24px rgba(0,0,0,.9), 0 0 0 1px var(--line-2)}
+.acct.on{box-shadow:0 0 0 1px var(--accent) inset, 0 0 26px -6px var(--accent), var(--shadow)}
+.tabs button.on{box-shadow:0 2px 14px -4px var(--accent)}
+.dot.ok{box-shadow:0 0 0 3px var(--panel-2), 0 0 10px var(--go)}
+.dot.bad{box-shadow:0 0 0 3px var(--panel-2), 0 0 10px var(--warn)}
+tr.go td{animation:goPulse 1.6s ease-in-out infinite}
+@keyframes goPulse{50%{background:transparent}}
+.toast{transform-origin:top right;animation:toastIn .35s cubic-bezier(.2,.9,.3,1.3) both;box-shadow:0 14px 32px -12px rgba(0,0,0,.6)}
+@keyframes toastIn{from{opacity:0;transform:perspective(600px) rotateX(-35deg) translateY(-10px)}to{opacity:1;transform:none}}
+h1{background:linear-gradient(180deg,var(--fg),var(--muted));-webkit-background-clip:text;background-clip:text;color:transparent}
+@media (prefers-reduced-motion:reduce){.acct{transform:none!important}tr.go td{animation:none}.toast{animation:none}}
+.stack{display:grid;gap:14px}
+ol.rules{padding-left:20px}
+.rules b{font-weight:600}
+</style>
+<div id="root"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/htm@3.1.1/dist/htm.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+<script>
+/* ============ Conviction Board v3 — engine (pure functions, shared by live + backtest) ============ */
+const E = (function(){
+const OPEN = 510, CLOSE = 900, FLAT = 880;          // CT minutes: 8:30, 15:00, 14:40
+const ACCOUNT = 50000;
+const DEFAULTS = {
+  riskPct: 0.01,            // $500 per trade
+  maxPremium: 2500,         // options: max premium per trade
+  maxOpenIntraday: 3,
+  maxOpenSwing: 6,
+  maxSwingNotional: 10000,
+  maxIntradayNotional: 25000,
+  dailyStop: 1000,          // tab halts for the day
+  weeklyStop: 2500,         // tab halts for the week
+  streakHalf: 3,            // half size after N losses in a row
+  requireJev: false,
+  jevMin: 0.65
+};
+const COMMOD = ['GLD','SLV','USO','UNG','CPER','GDX','GDXJ','DBA','URA','TLT','XLE','XOM','CVX','OXY','SLB','COP','FCX','NEM'];
+const UNIVERSE = ('AAPL MSFT NVDA AMZN GOOGL META TSLA AVGO AMD MU INTC QCOM ARM SMCI MRVL LRCX AMAT KLAC ANET DELL ORCL CRM ADBE NOW PLTR CRWD PANW SNOW NET DDOG ' +
+  'SHOP UBER ABNB NFLX DIS COIN HOOD MSTR SOFI PYPL XYZ RBLX APP AFRM RDDT TTWO EA JPM GS BAC MS C WFC V MA AXP UNH LLY ABBV MRK PFE JNJ COST WMT TGT HD LOW NKE ' +
+  'SBUX MCD KO PEP CAT DE GE BA LMT RTX XOM CVX OXY SLB COP FCX NEM SPY QQQ IWM DIA SMH XLF XLE XLK GLD SLV USO UNG CPER GDX GDXJ DBA URA TLT').split(' ');
+
+/* ---------- time ---------- */
+const ctFmt = new Intl.DateTimeFormat('en-US',{timeZone:'America/Chicago',hour12:false,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',weekday:'short'});
+function ct(ms){ const p={}; for(const x of ctFmt.formatToParts(new Date(ms))) p[x.type]=x.value; const h=(+p.hour)%24; return {date:`${p.year}-${p.month}-${p.day}`, min:h*60+(+p.minute), wd:p.weekday}; }
+function shiftDays(d,n){ const x=new Date(d+'T12:00:00Z'); x.setUTCDate(x.getUTCDate()+n); return x.toISOString().slice(0,10); }
+function dte(a,b){ return Math.round((new Date(b+'T12:00:00Z')-new Date(a+'T12:00:00Z'))/864e5); }
+function hm(min){ if(min==null) return '–'; const h=Math.floor(min/60), m=min%60; return `${((h+11)%12)+1}:${String(m).padStart(2,'0')}${h<12?'a':'p'}`; }
+function weekKey(d){ const x=new Date(d+'T12:00:00Z'); const day=(x.getUTCDay()+6)%7; x.setUTCDate(x.getUTCDate()-day); return x.toISOString().slice(0,10); }
+
+/* ---------- Massive CSV parsing ---------- */
+function resultText(res){
+  if(res==null) return '';
+  if(typeof res==='string') return res;
+  let p = res.payload!==undefined ? res.payload : null;
+  if(p && typeof p==='object' && typeof p.result==='string') return p.result;
+  if(typeof p==='string'){ try{ const j=JSON.parse(p); if(j && typeof j.result==='string') return j.result; }catch(e){} return p; }
+  const t = res.content && res.content.find(c=>c.type==='text');
+  if(t){ try{ const j=JSON.parse(t.text); if(j && typeof j.result==='string') return j.result; }catch(e){} return t.text; }
+  return '';
+}
+function splitRow(line){ const out=[]; let cur='', q=false, depth=0;
+  for(let i=0;i<line.length;i++){ const ch=line[i];
+    if(q){ if(ch==='"'){ if(line[i+1]==='"'){cur+='"';i++;} else q=false; } else cur+=ch; continue; }
+    if(ch==='"'){q=true;continue;} if(ch==='['||ch==='{')depth++; if(ch===']'||ch==='}')depth--;
+    if(ch===','&&depth===0){out.push(cur);cur='';} else cur+=ch; }
+  out.push(cur); return out; }
+function parseCSV(text){
+  const lines=(text||'').split('\n'); const rows=[]; if(!lines.length) return rows;
+  const head=splitRow(lines[0]); if(head.length<2) return rows;
+  for(let i=1;i<lines.length;i++){ const ln=lines[i]; if(!ln.trim()) break; const c=splitRow(ln); const o={}; head.forEach((h,j)=>o[h]=c[j]); rows.push(o); }
+  return rows;
+}
+// "Next page available. To fetch, call call_api with path="..." and params={"cursor": "..."}"
+function nextPage(text){
+  const m = /Next page available[\s\S]*?path="([^"]+)"[\s\S]*?params=(\{[^}]*\})/.exec(text||''); if(!m) return null;
+  let params={}; try{ params=JSON.parse(m[2]); }catch(e){ const c=/"cursor":\s*"([^"]+)"/.exec(m[2]); if(c) params={cursor:c[1]}; }
+  return {path:m[1], params};
+}
+function toBars(rows){ return rows.map(r=>({t:+r.t,o:+r.o,h:+r.h,l:+r.l,c:+r.c,v:+r.v})).filter(b=>b.t>0 && Number.isFinite(b.c) && Number.isFinite(b.h)); }
+
+/* ---------- bars ---------- */
+// group 1-min bars by CT date, RTH only, with .min
+function byDay(bars){ const days={}; for(const b of bars){ const p=ct(b.t); if(p.min<OPEN||p.min>=CLOSE) continue; (days[p.date]=days[p.date]||[]).push({...b, min:p.min}); }
+  for(const k in days) days[k].sort((a,b)=>a.t-b.t); return days; }
+function rth(bars){ return bars.map(b=>({...b, min: b.min!=null?b.min:ct(b.t).min})).filter(b=>b.min>=OPEN && b.min<CLOSE); }
+// n-minute bars aligned to 8:30 from 1-min RTH bars; .done when the bucket's last minute is present (or a later bar exists)
+function agg(bars, n){ const out=[]; let cur=null;
+  for(const b of bars){ const k=Math.floor((b.min-OPEN)/n); const start=OPEN+k*n;
+    if(!cur || cur.start!==start){ if(cur) { cur.done=true; out.push(cur); } cur={start,end:start+n-1,min:start,o:b.o,h:b.h,l:b.l,c:b.c,v:b.v,last:b.min,t:b.t}; }
+    else { cur.h=Math.max(cur.h,b.h); cur.l=Math.min(cur.l,b.l); cur.c=b.c; cur.v+=b.v; cur.last=b.min; }
+  }
+  if(cur){ cur.done = cur.last>=cur.end; out.push(cur); }
+  return out; }
+function emaArr(vals, n){ const k=2/(n+1); const out=[]; let e=null; for(const v of vals){ e = e==null? v : v*k + e*(1-k); out.push(e); } return out; }
+function vwapArr(bars){ let pv=0, vv=0; return bars.map(b=>{ pv+=b.v*(b.h+b.l+b.c)/3; vv+=b.v; return vv>0?pv/vv:b.c; }); }
+function sma(a,i,n){ if(i+1<n) return null; let s=0; for(let k=i-n+1;k<=i;k++) s+=a[k]; return s/n; }
+
+/* ---------- daily context ---------- */
+// daily: sorted daily bars (t,o,h,l,c,v) up to and including the last COMPLETED day before `date`
+function dailyCtx(daily){
+  const n=daily.length; if(n<2) return null;
+  const c=daily.map(d=>d.c), tr=[];
+  for(let i=1;i<n;i++) tr.push(Math.max(daily[i].h,daily[i-1].c)-Math.min(daily[i].l,daily[i-1].c));
+  const atr = tr.slice(-14).reduce((s,x)=>s+x,0)/Math.max(1,Math.min(14,tr.length));
+  const last=daily[n-1];
+  const vols=daily.slice(Math.max(0,n-21),n-1).map(d=>d.v);
+  return {prevClose:last.c, prevHigh:last.h, prevLow:last.l, atr, sma20:sma(c,n-1,20), sma50:sma(c,n-1,50), avgVol20: vols.length? vols.reduce((s,x)=>s+x,0)/vols.length : null};
+}
+
+/* ---------- intraday strategies ----------
+   Each detector gets (b1, ctx, st) where b1 = today's 1-min RTH bars so far, ctx = {atr, prevClose, sma20, ...daily},
+   st = per-ticker-per-day state for this strategy (trades taken, etc). Returns {sig?, note} */
+const STRATS = {
+  m1: { key:'m1', tf:1, name:'1-min Momentum', short:'1m', instr:'option',
+    blurb:'Opening-range break with volume delta (v2 logic). Break of the 8:30–8:44 range by 0.2 ATR with net volume delta ≥ 10% of session volume. Entries 8:45–10:30.',
+    rules:['Range 8:30–8:44, trigger = range high/low ± 0.2 ATR','Volume delta ≥ +10% (calls) or ≤ −10% (puts) of session volume','Entries 8:45–10:30 CT, one per ticker per day','Stop 0.5 ATR · T1 1.0 ATR (sell half, stop to breakeven) · T2 1.5 ATR · flat 2:40'],
+    detect(b1, ctx, st){
+      if(!ctx || !(ctx.atr>0)) return {note:'Waiting for daily data'};
+      const orb=b1.filter(b=>b.min<OPEN+15); if(!b1.length) return {note:'Premarket'};
+      const last=b1[b1.length-1]; if(last.min<OPEN+15) return {note:'Building 8:30–8:44 range'};
+      const hi=Math.max(...orb.map(b=>b.h)), lo=Math.min(...orb.map(b=>b.l));
+      let cvd=0, vol=0; for(const b of b1){ const r=b.h-b.l; cvd += r>0? b.v*((b.c-b.l)-(b.h-b.c))/r : 0; vol+=b.v; }
+      const flow = vol>0? cvd/vol : 0; const up=hi+0.2*ctx.atr, dn=lo-0.2*ctx.atr;
+      const levels={trigUp:up, trigDn:dn, orHi:hi, orLo:lo, flow};
+      if(st.n>=1) return {note:'Done for today', levels};
+      if(last.min>630) return {note:'Entry window closed (10:30)', levels};
+      const px=last.c; let side=0;
+      if(px>up && flow>=0.10) side=1; else if(px<dn && flow<=-0.10) side=-1;
+      if(!side) return {note: px>up? 'Above trigger, waiting on volume delta' : px<dn ? 'Below trigger, waiting on volume delta' : 'Inside range', levels};
+      const stop=px-side*0.5*ctx.atr;
+      return {levels, sig:{side, entry:px, stop, t1:px+side*1.0*ctx.atr, t2:px+side*1.5*ctx.atr, setup:'ORB+flow', exitRule:null, min:last.min}};
+    }},
+  m5: { key:'m5', tf:5, name:'5-min Pullback', short:'5m', instr:'option',
+    blurb:'Trend continuation, not a breakout: in an intraday trend (above VWAP, 9 EMA over 20 EMA), buy the dip back to VWAP/20 EMA once a 5-min bar closes back above the prior bar high on volume.',
+    rules:['Trend: 5-min close above VWAP and 9 EMA above 20 EMA (mirror for puts)','Pullback: a bar in the last 3 tagged VWAP or the 20 EMA (within 0.15 ATR)','Trigger: completed 5-min bar closes above prior bar high and the 9 EMA, volume ≥ 20-bar average','Entries 9:00–1:30 CT, max 2 per ticker per day','Stop under pullback low (0.15–0.6 ATR) · T1 1R (half) · T2 2R · exit on 5-min close back through VWAP · flat 2:40'],
+    detect(b1, ctx, st){ return pullback(b1, ctx, st, 5, {from:540, to:810, maxN:2, tagAtr:0.15, minR:0.15, maxR:0.6, t2R:2}); }},
+  m15:{ key:'m15', tf:15, name:'15-min Trend', short:'15m', instr:'option',
+    blurb:'Higher-low continuation with the daily trend: only longs above the 20-day average (puts below), entered when a 15-min pullback bar is taken out while holding above VWAP.',
+    rules:['Daily bias: price above 20-day average for calls, below for puts','15-min: close above VWAP, higher low vs the prior pullback','Trigger: completed 15-min bar closes above the pullback bar high','Entries 9:15–1:00 CT, one per ticker per day','Stop under pullback low (0.25–0.8 ATR) · T1 1R (half) · T2 2.5R · exit on 15-min close back through VWAP · flat 2:40'],
+    detect(b1, ctx, st){ return trend15(b1, ctx, st); }},
+};
+function pullback(b1, ctx, st, n, o){
+  if(!ctx || !(ctx.atr>0)) return {note:'Waiting for daily data'};
+  if(!b1.length) return {note:'Premarket'};
+  const bars=agg(b1,n).filter(b=>b.done); if(bars.length<4) return {note:'Building '+n+'-min bars'};
+  const cl=bars.map(b=>b.c), e9=emaArr(cl,9), e20=emaArr(cl,20);
+  // VWAP at each completed bar = 1-min VWAP at the bar's last minute
+  const vw1=vwapArr(b1); const vwAt=m=>{ let v=null; for(let i=0;i<b1.length;i++){ if(b1[i].min<=m) v=vw1[i]; else break; } return v; };
+  const i=bars.length-1, b=bars[i], p=bars[i-1], vw=vwAt(b.end);
+  const avgV = bars.slice(Math.max(0,i-20),i).reduce((s,x)=>s+x.v,0)/Math.max(1,Math.min(20,i));
+  const levels={vwap:vw, ema9:e9[i], ema20:e20[i]};
+  if(st.n>=o.maxN) return {note:'Max trades for today', levels};
+  if(b.end<o.from) return {note:'Waiting for 9:00', levels};
+  if(b.end>o.to) return {note:'Entry window closed', levels};
+  if(st.lastBar===b.start) return {note:'Signal already taken on this bar', levels};
+  const tag=o.tagAtr*ctx.atr;
+  for(const side of [1,-1]){
+    const trend = side>0 ? (b.c>vw && e9[i]>e20[i]) : (b.c<vw && e9[i]<e20[i]);
+    if(!trend) continue;
+    let touched=false, pl= side>0? Infinity : -Infinity;
+    for(let k=Math.max(0,i-3);k<i;k++){ const x=bars[k]; const vk=vwAt(x.end);
+      if(side>0 && (x.l<=vk+tag || x.l<=e20[k]+tag)) touched=true;
+      if(side<0 && (x.h>=vk-tag || x.h>=e20[k]-tag)) touched=true;
+      pl = side>0? Math.min(pl,x.l) : Math.max(pl,x.h); }
+    pl = side>0? Math.min(pl,b.l) : Math.max(pl,b.h);
+    const trig = side>0 ? (b.c>p.h && b.c>e9[i]) : (b.c<p.l && b.c<e9[i]);
+    if(!touched) return {note:(side>0?'Uptrend':'Downtrend')+', waiting for a pullback to VWAP/20 EMA', levels};
+    if(!trig) return {note:(side>0?'Pulled back':'Bounced')+', waiting for the '+n+'-min reclaim bar', levels};
+    if(b.v<avgV) return {note:'Reclaim bar on light volume, skipped', levels};
+    const entry=b.c; let risk=Math.abs(entry-(pl-side*0.05*ctx.atr));
+    risk=Math.min(Math.max(risk,o.minR*ctx.atr),o.maxR*ctx.atr);
+    const stop=entry-side*risk;
+    return {levels, sig:{side, entry, stop, t1:entry+side*risk, t2:entry+side*o.t2R*risk, setup:n+'m pullback', exitRule:{tf:n, vwap:true}, min:b.end, bar:b.start}};
+  }
+  return {note:'No intraday trend (chop)', levels};
+}
+function trend15(b1, ctx, st){
+  if(!ctx || !(ctx.atr>0) || ctx.sma20==null) return {note:'Waiting for daily data'};
+  if(!b1.length) return {note:'Premarket'};
+  const bars=agg(b1,15).filter(b=>b.done); if(bars.length<3) return {note:'Building 15-min bars'};
+  const vw1=vwapArr(b1); const vwAt=m=>{ let v=null; for(let i=0;i<b1.length;i++){ if(b1[i].min<=m) v=vw1[i]; else break; } return v; };
+  const i=bars.length-1, b=bars[i], vw=vwAt(b.end); const levels={vwap:vw, sma20:ctx.sma20};
+  if(st.n>=1) return {note:'Done for today', levels};
+  if(b.end<555) return {note:'Waiting for 9:15', levels};
+  if(b.end>780) return {note:'Entry window closed (1:00)', levels};
+  const side = b.c>ctx.sma20 ? 1 : -1;            // daily bias from the 20-day average
+  if(side>0? b.c<=vw : b.c>=vw) return {note:'Wrong side of VWAP for the daily bias', levels};
+  // pullback bar = most recent bar (before b) that closed against the trend; its extreme is the higher low
+  let pi=-1; for(let k=i-1;k>=Math.max(0,i-4);k--){ const x=bars[k]; if(side>0? x.c<x.o : x.c>x.o){ pi=k; break; } }
+  if(pi<0) return {note:'Trending, waiting for a 15-min pullback bar', levels};
+  const pb=bars[pi];
+  const prevSwing = bars.slice(0,pi).reduce((m,x)=> side>0? Math.min(m,x.l) : Math.max(m,x.h), side>0?Infinity:-Infinity);
+  const higherLow = side>0 ? pb.l>prevSwing : pb.h<prevSwing;
+  if(!higherLow) return {note:'No higher low yet', levels};
+  if(!(side>0? b.c>pb.h : b.c<pb.l)) return {note:'Pullback set, waiting for the break of its '+(side>0?'high':'low'), levels};
+  const entry=b.c; let risk=Math.abs(entry-((side>0?pb.l:pb.h)-side*0.05*ctx.atr));
+  risk=Math.min(Math.max(risk,0.25*ctx.atr),0.8*ctx.atr); const stop=entry-side*risk;
+  return {levels, sig:{side, entry, stop, t1:entry+side*risk, t2:entry+side*2.5*risk, setup:'15m higher low', exitRule:{tf:15, vwap:true}, min:b.end, bar:b.start}};
+}
+
+/* ---------- trade management (shared) ----------
+   tr: {side, entry, stop, stop0, t1, t2, exitRule, partial:false, open:true}
+   stepTrade(tr, bar, b1) applies one 1-min bar (or a price tick as a bar). Returns events [{type, px, frac, min}] */
+function stepTrade(tr, bar, b1){
+  const ev=[]; if(!tr.open) return ev; const s=tr.side;
+  const hit = (lvl, dirUp)=> dirUp ? bar.h>=lvl : bar.l<=lvl;
+  // stop first (conservative)
+  if(hit(tr.stop, s<0)){ const px = s>0 ? Math.min(bar.o, tr.stop) : Math.max(bar.o, tr.stop);
+    ev.push({type: tr.partial && Math.abs(tr.stop-tr.entry)<1e-9 ? 'breakeven' : 'stop', px, frac: tr.partial?0.5:1, min:bar.min}); tr.open=false; return ev; }
+  if(!tr.partial && hit(tr.t1, s>0)){ ev.push({type:'t1', px:tr.t1, frac:0.5, min:bar.min}); tr.partial=true; tr.stop=tr.entry; }
+  if(tr.partial && hit(tr.t2, s>0)){ ev.push({type:'t2', px:tr.t2, frac:0.5, min:bar.min}); tr.open=false; return ev; }
+  // strategy exit: completed n-min bar closing back through VWAP
+  if(tr.exitRule && tr.exitRule.vwap && b1 && bar.final){
+    const n=tr.exitRule.tf; if((bar.min-OPEN+1)%n===0 && bar.min>tr.entryMin){
+      const vw=vwapArr(b1.filter(x=>x.min<=bar.min)); const v=vw[vw.length-1];
+      if(s>0? bar.c<v : bar.c>v){ ev.push({type:'vwap', px:bar.c, frac: tr.partial?0.5:1, min:bar.min}); tr.open=false; return ev; } } }
+  if(bar.min>=FLAT){ ev.push({type:'time', px:bar.c, frac: tr.partial?0.5:1, min:bar.min}); tr.open=false; }
+  return ev;
+}
+// realized R of a finished trade from its events
+function rOf(tr, evs){ const risk=Math.abs(tr.entry-tr.stop0); if(!(risk>0)) return 0; let r=0; for(const e of evs) r+= e.frac*tr.side*(e.px-tr.entry)/risk; return r; }
+
+/* ---------- sizing ---------- */
+function sizeShares(entry, stop, riskBudget, maxNotional){ const per=Math.abs(entry-stop); if(!(per>0)) return 0; return Math.max(0, Math.floor(Math.min(riskBudget/per, maxNotional/entry))); }
+function sizeOptions(mid, delta, entry, stop, riskBudget, maxPremium){
+  if(!(mid>0)) return 0; const per=Math.abs(delta||0.5)*Math.abs(entry-stop)*100; const byRisk = per>0? Math.floor(riskBudget/per) : 1;
+  const byPrem=Math.floor(maxPremium/(mid*100)); const n=Math.min(Math.max(1,byRisk), byPrem); return n>=1? n : 0; }
+
+/* ---------- account stats ---------- */
+function stats(trades, start=ACCOUNT){
+  const closed=trades.filter(t=>t.status==='closed').sort((a,b)=>(a.exitAt||0)-(b.exitAt||0));
+  let eq=start, peak=start, dd=0; const curve=[{t:closed.length?closed[0].entryAt||0:0, eq:start}];
+  let gw=0, gl=0, w=0, l=0, sw=0;
+  for(const t of closed){ const p=t.pnl||0; eq+=p; peak=Math.max(peak,eq); dd=Math.max(dd,peak-eq); curve.push({t:t.exitAt||0, eq});
+    if(p>0){gw+=p;w++;} else if(p<0){gl-=p;l++;} sw+=(t.pnlSpread??p); }
+  const open=trades.filter(t=>t.status==='open'); const unreal=open.reduce((s,t)=>s+(t.unreal||0),0);
+  return {n:closed.length, wins:w, losses:l, win: closed.length? 100*w/closed.length : null, pf: gl>0? gw/gl : (gw>0?Infinity:null),
+    avgW: w? gw/w : null, avgL: l? -gl/l : null, realized: eq-start, spreadRealized: sw, equity: eq+unreal, unreal, maxDD: dd, maxDDPct: peak>0? 100*dd/peak : 0, curve, open:open.length};
+}
+function guard(trades, today, cfg){
+  const wk=weekKey(today);
+  const dayP = trades.filter(t=>t.date===today).reduce((s,t)=>s+(t.status==='closed'?(t.pnl||0):(t.unreal||0)),0);
+  const wkP = trades.filter(t=>weekKey(t.date)===wk).reduce((s,t)=>s+(t.status==='closed'?(t.pnl||0):(t.unreal||0)),0);
+  const closed=trades.filter(t=>t.status==='closed').sort((a,b)=>(b.exitAt||0)-(a.exitAt||0)); let streak=0; for(const t of closed){ if((t.pnl||0)<0) streak++; else break; }
+  const halted = dayP<=-cfg.dailyStop ? 'Daily loss limit hit ($'+cfg.dailyStop+'): no new trades today' : wkP<=-cfg.weeklyStop ? 'Weekly loss limit hit ($'+cfg.weeklyStop+'): paused until Monday' : null;
+  return {dayP, wkP, streak, half: streak>=cfg.streakHalf, halted};
+}
+
+/* ---------- swing (daily) ---------- */
+// daily rows sorted asc. Returns indicator arrays used by the scan and the backtest
+function swingInd(d){
+  const n=d.length, c=d.map(x=>x.c), out=[];
+  for(let i=0;i<n;i++){
+    const tr = i? Math.max(d[i].h,d[i-1].c)-Math.min(d[i].l,d[i-1].c) : d[i].h-d[i].l; out.push({tr});
+  }
+  for(let i=0;i<n;i++){ const o=out[i];
+    o.sma20=sma(c,i,20); o.sma50=sma(c,i,50);
+    let a=0,k=0; for(let j=Math.max(0,i-13);j<=i;j++){a+=out[j].tr;k++;} o.atr=a/k;
+    let hi60=-Infinity; for(let j=Math.max(0,i-59);j<=i;j++) hi60=Math.max(hi60,d[j].h); o.hi60=hi60;
+    let hi20p=-Infinity; for(let j=Math.max(0,i-20);j<i;j++) hi20p=Math.max(hi20p,d[j].h); o.hi20p=i?hi20p:null;
+    let vs=0,vk=0; for(let j=Math.max(0,i-50);j<i;j++){vs+=d[j].v;vk++;} o.vol50=vk?vs/vk:null;
+    let l5=Infinity; for(let j=Math.max(0,i-4);j<=i;j++) l5=Math.min(l5,d[j].l); o.low5=l5;
+    let l3=Infinity; for(let j=Math.max(0,i-2);j<=i;j++) l3=Math.min(l3,d[j].l); o.low3=l3;
+  }
+  for(let i=0;i<n;i++) out[i].sma50_10 = i>=10? out[i-10].sma50 : null;
+  return out;
+}
+// signal on completed day i (entry next open). mktOk: SPY trend ok that day (ignored for commodities)
+function swingSignal(d, ind, i, sym, mktOk){
+  const x=d[i], o=ind[i]; if(i<69 || o.sma20==null || o.sma50==null || o.sma50_10==null || o.hi20p==null || o.vol50==null) return null;
+  const trend = x.c>o.sma50 && o.sma20>o.sma50 && o.sma50>o.sma50_10 && x.c>=0.9*o.hi60;
+  if(!trend) return null;
+  if(!mktOk && !COMMOD.includes(sym)) return null;
+  const brk = x.c>o.hi20p && x.v>=1.5*o.vol50;
+  const pb = o.low3<=o.sma20*1.01 && x.c>d[i-1].h && x.c>o.sma20 && x.v>=o.vol50;
+  if(!brk && !pb) return null;
+  return {setup: brk?'breakout':'pullback', atr:o.atr, low5:o.low5, rvol: o.vol50? x.v/o.vol50 : null, close:x.c, sma20:o.sma20};
+}
+function swingStop(entry, sig){ return Math.min(Math.max(sig.low5-0.1*sig.atr, entry-2.5*sig.atr), entry-1.0*sig.atr); }
+// manage one day for an open swing position: returns exit {px, reason} or null. dayIdx = days held including entry day (1-based)
+function swingDay(pos, bar, sma20, dayIdx){
+  if(bar.l<=pos.stop) return {px: Math.min(bar.o, pos.stop), reason:'stop'};
+  if(sma20!=null && bar.c<sma20) return {px: bar.c, reason:'close < 20-day'};
+  if(dayIdx>=20) return {px: bar.c, reason:'20-day max hold'};
+  return null;
+}
+function spyOkMap(spy){ const ind=swingInd(spy); const m={}; spy.forEach((x,i)=>{ const o=ind[i]; m[ct(x.t+12*3600e3).date]= o.sma50!=null && x.c>o.sma50 && o.sma20>o.sma50; }); return m; }
+function backtestSwing(series, spy, cfg){
+  // series: {sym: daily[]}; portfolio-level with max positions, 1% risk, $10k cap, ranking breakout first then rvol
+  const ok=spyOkMap(spy); const dates=[...new Set(Object.values(series).flatMap(d=>d.map(x=>ct(x.t+12*3600e3).date)))].sort();
+  const idx={}, ind={}; for(const s in series){ ind[s]=swingInd(series[s]); idx[s]={}; series[s].forEach((x,i)=>idx[s][ct(x.t+12*3600e3).date]=i); }
+  let cash=ACCOUNT; const open=[], closed=[]; let pending=[];
+  const risk=ACCOUNT*cfg.riskPct;
+  for(const date of dates){
+    // 1) fill pending entries at today's open
+    for(const p of pending){ const i=idx[p.sym][date]; if(i==null) continue; if(open.length>=cfg.maxOpenSwing) break; if(open.some(o=>o.sym===p.sym)) continue;
+      const bar=series[p.sym][i]; const entry=bar.o; const stop=swingStop(entry,p.sig); const qty=sizeShares(entry,stop,risk,cfg.maxSwingNotional); if(qty<1) continue;
+      open.push({sym:p.sym, setup:p.sig.setup, entry, stop, stop0:stop, qty, ei:i, date, rvol:p.sig.rvol}); }
+    pending=[];
+    // 2) manage open positions on today's bar
+    for(let k=open.length-1;k>=0;k--){ const pos=open[k]; const i=idx[pos.sym][date]; if(i==null) continue;
+      const ex=swingDay(pos, series[pos.sym][i], ind[pos.sym][i].sma20, i-pos.ei+1);
+      if(ex){ const pnl=(ex.px-pos.entry)*pos.qty; closed.push({...pos, exit:ex.px, reason:ex.reason, xdate:date, pnl, R:(ex.px-pos.entry)/(pos.entry-pos.stop0), days:i-pos.ei+1}); open.splice(k,1); } }
+    // 3) scan today's completed bars -> entries tomorrow
+    const cands=[]; for(const s in series){ const i=idx[s][date]; if(i==null) continue; if(open.some(o=>o.sym===s)) continue;
+      const sig=swingSignal(series[s], ind[s], i, s, !!ok[date]); if(sig) cands.push({sym:s, sig}); }
+    cands.sort((a,b)=> (a.sig.setup===b.sig.setup? (b.sig.rvol||0)-(a.sig.rvol||0) : (a.sig.setup==='breakout'?-1:1)));
+    pending=cands;
+  }
+  return {closed, open};
+}
+
+/* ---------- intraday backtest ---------- */
+// days: {date: 1-min RTH bars}, dailyCtxFor(date) -> ctx. Returns trades in R and share-$ at 1% risk
+function backtestIntraday(stratKey, sym, days, dailyCtxFor, cfg){
+  const S=STRATS[stratKey]; const out=[]; const risk=ACCOUNT*cfg.riskPct;
+  for(const date of Object.keys(days).sort()){
+    const b1all=days[date]; const ctx=dailyCtxFor(date); if(!ctx) continue; const st={n:0, lastBar:null}; let tr=null, evs=[];
+    for(let i=0;i<b1all.length;i++){
+      const bar={...b1all[i], final:true}; const b1=b1all.slice(0,i+1);
+      if(tr && tr.open){ const e=stepTrade(tr, bar, b1); evs.push(...e); if(!tr.open){ const R=rOf(tr,evs); out.push({sym, date, setup:tr.setup, side:tr.side, entry:tr.entry, entryMin:tr.entryMin, exitMin:bar.min, R, pnl:R*tr.qty*Math.abs(tr.entry-tr.stop0), reasons:evs.map(x=>x.type).join('+')}); tr=null; evs=[]; } continue; }
+      if(bar.min>=FLAT) break;
+      if(S.tf>1 && (bar.min-OPEN+1)%S.tf!==0) continue;
+      const r=S.detect(b1, ctx, st); if(r.sig){ const s=r.sig; st.n++; st.lastBar=s.bar??null;
+        tr={...s, stop0:s.stop, open:true, partial:false, entryMin:bar.min, qty:sizeShares(s.entry,s.stop,risk,cfg.maxIntradayNotional)}; evs=[]; }
+    }
+    if(tr && tr.open){ const last=b1all[b1all.length-1]; evs.push({type:'time',px:last.c,frac:tr.partial?0.5:1,min:last.min}); const R=rOf(tr,evs); out.push({sym,date,setup:tr.setup,side:tr.side,entry:tr.entry,entryMin:tr.entryMin,exitMin:last.min,R,pnl:R*tr.qty*Math.abs(tr.entry-tr.stop0),reasons:evs.map(x=>x.type).join('+')}); }
+  }
+  return out;
+}
+function summarize(trs){
+  const n=trs.length; if(!n) return {n:0};
+  const w=trs.filter(t=>t.R>0), l=trs.filter(t=>t.R<=0); const gw=w.reduce((s,t)=>s+(t.pnl||0),0), gl=-l.reduce((s,t)=>s+(t.pnl||0),0);
+  let eq=0,peak=0,dd=0; for(const t of [...trs].sort((a,b)=>(a.xdate||a.date)<(b.xdate||b.date)?-1:1)){ eq+=t.pnl||0; peak=Math.max(peak,eq); dd=Math.max(dd,peak-eq); }
+  return {n, win:100*w.length/n, avgR: trs.reduce((s,t)=>s+t.R,0)/n, pf: gl>0? gw/gl : null, pnl: gw-gl, maxDD: dd};
+}
+
+return {OPEN, CLOSE, FLAT, ACCOUNT, DEFAULTS, COMMOD, UNIVERSE, STRATS, ct, shiftDays, dte, hm, weekKey, resultText, parseCSV, nextPage, toBars, byDay, rth, agg, emaArr, vwapArr,
+  dailyCtx, stepTrade, rOf, sizeShares, sizeOptions, stats, guard, swingInd, swingSignal, swingStop, swingDay, spyOkMap, backtestSwing, backtestIntraday, summarize};
+})();
+if(typeof module!=='undefined') module.exports=E;
+
+/* ============ Top-Down Trendline module (monthly -> weekly -> daily -> hourly -> 15m) ============
+   Pure functions. Pivots are only used once confirmed (k bars to their right), so nothing looks ahead. */
+const TD = (function(E){
+const dOf = t => E.ct(t+12*3600e3).date;
+
+/* ---------- resample daily -> weekly / monthly ---------- */
+function groupKeys(daily, tf){ return daily.map(b=>{ const d=dOf(b.t); return tf==='W'? E.weekKey(d) : d.slice(0,7); }); }
+function resample(daily, tf, upto){ upto = upto==null? daily.length-1 : upto; const keys=groupKeys(daily.slice(0,upto+1), tf); const out=[];
+  for(let i=0;i<=upto;i++){ const b=daily[i], k=keys[i]; const g=out[out.length-1];
+    if(!g || g.key!==k) out.push({key:k, t:b.t, o:b.o, h:b.h, l:b.l, c:b.c, v:b.v, last:i}); else { g.h=Math.max(g.h,b.h); g.l=Math.min(g.l,b.l); g.c=b.c; g.v+=b.v; g.last=i; } }
+  return out; }
+
+/* ---------- swing pivots ---------- */
+function pivots(bars, k){ const highs=[], lows=[]; const n=bars.length;
+  for(let i=k;i<n-k;i++){ let hi=true, lo=true;
+    for(let j=i-k;j<=i+k;j++){ if(j===i) continue; if(bars[j].h>bars[i].h || (j<i && bars[j].h===bars[i].h)) hi=false; if(bars[j].l<bars[i].l || (j<i && bars[j].l===bars[i].l)) lo=false; if(!hi&&!lo) break; }
+    if(hi) highs.push({i, p:bars[i].h}); if(lo) lows.push({i, p:bars[i].l}); }
+  return {highs, lows, k}; }
+const confirmed = (list, k, upto) => list.filter(x=>x.i+k<=upto);
+
+function atrOf(bars, upto, n=14){ upto=upto==null?bars.length-1:upto; let s=0,c=0; for(let i=Math.max(1,upto-n+1);i<=upto;i++){ s+=Math.max(bars[i].h,bars[i-1].c)-Math.min(bars[i].l,bars[i-1].c); c++; } return c? s/c : (bars[upto]? bars[upto].h-bars[upto].l : 0); }
+function smaAt(bars, i, n){ if(i+1<n) return null; let s=0; for(let j=i-n+1;j<=i;j++) s+=bars[j].c; return s/n; }
+
+/* ---------- trendlines ----------
+   kind 'support': rising line through pivot lows; 'resist': falling line through pivot highs.
+   A line is valid while no close has broken through it by more than `pierce` ATR since its first point. */
+function trendLine(bars, piv, kind, atr, upto, o={}){
+  const maxP=o.maxPivots||6, win=o.window||120, tol=(o.tolAtr||0.25)*atr, pierce=(o.pierceAtr||0.2)*atr, minSpan=o.minSpan||5;
+  const src = confirmed(kind==='support'? piv.lows : piv.highs, piv.k, upto).filter(x=>x.i>=upto-win).slice(-maxP);
+  let best=null;
+  for(let a=0;a<src.length;a++) for(let b=a+1;b<src.length;b++){
+    const A=src[a], B=src[b]; if(B.i-A.i<2) continue;
+    if(kind==='support' ? !(B.p>A.p) : !(B.p<A.p)) continue;
+    const slope=(B.p-A.p)/(B.i-A.i); const at=j=>A.p+slope*(j-A.i);
+    if(upto-A.i<minSpan) continue;
+    let ok=true; for(let j=A.i;j<=upto;j++){ const c=bars[j].c, v=at(j); if(kind==='support'? c<v-pierce : c>v+pierce){ ok=false; break; } }
+    if(!ok) continue;
+    const all=kind==='support'? piv.lows : piv.highs; let touches=0, lastTouch=B.i;
+    for(const x of confirmed(all, piv.k, upto)) if(x.i>=A.i && Math.abs(x.p-at(x.i))<=tol){ touches++; lastTouch=Math.max(lastTouch,x.i); }
+    const score=touches*10 + B.i/Math.max(1,upto) + (upto-A.i)/Math.max(1,win);
+    if(!best || score>best.score) best={kind, ia:A.i, pa:A.p, ib:B.i, pb:B.p, slope, touches, lastTouch, score, at};
+  }
+  return best;
+}
+
+/* ---------- support / resistance levels (clustered pivots across timeframes) ---------- */
+function levels(sets, price, atrD){
+  const pts=[]; for(const s of sets){ for(const x of s.list) pts.push({p:x.p, w:s.w}); }
+  pts.sort((a,b)=>a.p-b.p); const tol=Math.max(0.6*atrD, price*0.008); const out=[];
+  for(const x of pts){ const g=out[out.length-1]; if(g && x.p-g.hi<=tol){ g.sum+=x.p*x.w; g.w+=x.w; g.hi=x.p; g.n++; g.p=g.sum/g.w; } else out.push({p:x.p, sum:x.p*x.w, w:x.w, hi:x.p, lo:x.p, n:1}); }
+  return out.filter(g=>g.w>=2).map(g=>({price:+g.p.toFixed(4), strength:g.w, touches:g.n}));
+}
+
+/* ---------- trend of one timeframe ---------- */
+function trendOf(bars, piv, upto, smaN){
+  const H=confirmed(piv.highs,piv.k,upto).slice(-2), L=confirmed(piv.lows,piv.k,upto).slice(-2);
+  const c=bars[upto].c, s=smaAt(bars,upto,smaN), s3=smaAt(bars,Math.max(0,upto-3),smaN);
+  let st='range';
+  if(H.length===2 && L.length===2){ if(H[1].p>H[0].p && L[1].p>L[0].p) st='up'; else if(H[1].p<H[0].p && L[1].p<L[0].p) st='down'; }
+  if(st==='range' && s!=null && s3!=null){ if(c>s && s>s3) st='up'; else if(c<s && s<s3) st='down'; }
+  // a close through the last swing low/high cancels the structure trend
+  if(st==='up' && L.length && c<L[L.length-1].p) st='range'; if(st==='down' && H.length && c>H[H.length-1].p) st='range';
+  return {trend:st, sma:s, lastHigh:H.length?H[H.length-1].p:null, lastLow:L.length?L[L.length-1].p:null};
+}
+
+/* trend of a higher timeframe at a point inside its current (unfinished) bar: structure from completed bars only, the live close for the average */
+function trendAt(full, piv, done, cur, smaN){
+  if(done<smaN) return {trend:'range'};
+  const H=confirmed(piv.highs,piv.k,done).slice(-2), L=confirmed(piv.lows,piv.k,done).slice(-2);
+  let sum=0; for(let j=done-smaN+2;j<=done;j++) sum+=full[j].c; const s=(sum+cur)/smaN; const s3=smaAt(full,done-2,smaN);
+  let st='range';
+  if(H.length===2 && L.length===2){ if(H[1].p>H[0].p && L[1].p>L[0].p) st='up'; else if(H[1].p<H[0].p && L[1].p<L[0].p) st='down'; }
+  if(st==='range' && s3!=null){ if(cur>s && s>s3) st='up'; else if(cur<s && s<s3) st='down'; }
+  if(st==='up' && L.length && cur<L[L.length-1].p) st='range'; if(st==='down' && H.length && cur>H[H.length-1].p) st='range';
+  return {trend:st, sma:s};
+}
+/* ---------- full top-down read at daily index i ---------- */
+function prep(daily){
+  const W=resample(daily,'W'), M=resample(daily,'M'); const wi=[], mi=[]; let w=0, m=0;
+  for(let i=0;i<daily.length;i++){ while(W[w].last<i) w++; while(M[m].last<i) m++; wi.push(w); mi.push(m); }
+  return {daily, pivD:pivots(daily,3), atr:daily.map((_,i)=>atrOf(daily,i)), W, M, wi, mi, pW:pivots(W,2), pM:pivots(M,2)};
+}
+function analyze(P, i){
+  const d=P.daily; if(i<60) return null; const atr=P.atr[i]; const c=d[i].c;
+  const wd=P.wi[i]-1, md=P.mi[i]-1;   // last completed week / month
+  const tM=trendAt(P.M,P.pM,md,c,10), tW=trendAt(P.W,P.pW,wd,c,20), tD=trendOf(d,P.pivD,i,50);
+  const pM={highs:P.pM.highs, lows:P.pM.lows}, pW={highs:P.pW.highs, lows:P.pW.lows}; const M={length:md+1}, W={length:wd+1};
+  const s50=smaAt(d,i,50); const anyUp = tM.trend!=='down' && tW.trend==='up' && tD.trend!=='down' && s50!=null && c>s50, anyDn = tM.trend!=='up' && tW.trend==='down' && tD.trend!=='up' && s50!=null && c<s50;
+  if(P.fast && !anyUp && !anyDn) return {i, c, atr, M:tM, W:tW, D:tD, skip:true, sma50:s50};
+  const sup=trendLine(d,P.pivD,'support',atr,i,{window:120}), res=trendLine(d,P.pivD,'resist',atr,i,{window:120});
+  const pull=trendLine(d,P.pivD,'resist',atr,i,{window:30, maxPivots:4, minSpan:3}), bounceUp=trendLine(d,P.pivD,'support',atr,i,{window:30, maxPivots:4, minSpan:3});
+  const lv=levels([{list:confirmed(pM.highs,2,M.length-1).concat(confirmed(pM.lows,2,M.length-1)), w:3},{list:confirmed(pW.highs,2,W.length-1).concat(confirmed(pW.lows,2,W.length-1)), w:2},
+    {list:confirmed(P.pivD.highs,3,i).filter(x=>x.i>=i-250).concat(confirmed(P.pivD.lows,3,i).filter(x=>x.i>=i-250)), w:1}], c, atr);
+  return {i, c, atr, M:tM, W:tW, D:tD, sup, res, pull, bounceUp, levels:lv, sma50:smaAt(d,i,50), sma20:smaAt(d,i,20)};
+}
+
+/* ---------- daily setup ----------
+   Longs need monthly not down, weekly up, daily not down, close above the 50-day; shorts mirror.
+   bounce: 3rd+ touch of the rising Action Line (low tags it, close holds above, close in the top half)
+   line break: in a pullback, price closes back above the short falling pullback line after pulling into support
+   room: the next level in the trade's direction must be >= 2R away (or none = open sky, target 4R) */
+function signal(P, i){
+  const A=analyze(P,i); if(!A || A.skip) return null; const d=P.daily, b=d[i], pb=d[i-1], atr=A.atr; const out=[];
+  for(const side of [1,-1]){
+    const up=side>0;
+    const htf = up ? (A.M.trend!=='down' && A.W.trend==='up' && A.D.trend!=='down' && A.sma50!=null && b.c>A.sma50)
+                   : (A.M.trend!=='up' && A.W.trend==='down' && A.D.trend!=='up' && A.sma50!=null && b.c<A.sma50);
+    if(!htf) continue;
+    let setup=null, stop=null, action=null, safety=null;
+    const L = up? A.sup : A.res;   // action line in the trend direction
+    if(L && L.touches>=2 && i-L.ia>=5){ const v=L.at(i);
+      const tagged = up? (b.l<=v+0.35*atr && b.c>v && b.c>=(b.h+b.l)/2) : (b.h>=v-0.35*atr && b.c<v && b.c<=(b.h+b.l)/2);
+      if(tagged){ setup='bounce'; action=L; safety=L; stop=v-side*0.3*atr; } }
+    if(!setup){ const PL = up? A.pull : A.bounceUp;   // short counter-trend line drawn by the pullback
+      if(PL && PL.touches>=2 && PL.ia>=i-30){ const v=PL.at(i), vp=PL.at(i-1);
+        const broke = up? (b.c>v+0.05*atr && pb.c<=vp+0.05*atr) : (b.c<v-0.05*atr && pb.c>=vp-0.05*atr);
+        if(broke){ let lo=Infinity, hi=-Infinity; for(let j=Math.max(0,i-9);j<=i;j++){ lo=Math.min(lo,d[j].l); hi=Math.max(hi,d[j].h); }
+          const ext = up? lo : hi; const near = (L && Math.abs(ext-L.at(i))<=1.0*atr) || A.levels.some(x=>Math.abs(x.price-ext)<=1.0*atr);
+          if(near){ setup='line break'; action=PL; safety=L||null; let s5=up?Infinity:-Infinity; for(let j=Math.max(0,i-4);j<=i;j++) s5=up? Math.min(s5,d[j].l) : Math.max(s5,d[j].h); stop=s5-side*0.1*atr; } } } }
+    if(!setup) continue;
+    const entry=b.c; let risk=Math.abs(entry-stop); risk=Math.min(Math.max(risk,0.5*atr),2.5*atr); stop=entry-side*risk;
+    const ahead = A.levels.filter(x=> up? x.price>entry+0.25*atr : x.price<entry-0.25*atr).sort((a,c2)=> up? a.price-c2.price : c2.price-a.price);
+    const next = ahead.length? ahead[0].price : null;
+    if(next!=null && Math.abs(next-entry) < 2*risk) { out.push({side, setup, rejected:'Next level '+next.toFixed(2)+' is under 2R away'}); continue; }
+    const t1=entry+side*2*risk; const beyond=ahead.find(x=> up? x.price>=t1+0.5*risk : x.price<=t1-0.5*risk);
+    const t2= beyond? beyond.price : entry+side*4*risk;
+    out.push({side, setup, entry, stop, risk, t1, t2, next, atr, trend:{M:A.M.trend, W:A.W.trend, D:A.D.trend},
+      action: action? {ia:action.ia, pa:action.pa, slope:action.slope, touches:action.touches, value:action.at(i)} : null,
+      safety: safety? {ia:safety.ia, pa:safety.pa, slope:safety.slope, touches:safety.touches} : null, sma20:A.sma20});
+  }
+  const ok=out.filter(x=>!x.rejected); return ok.length? ok[0] : (out[0]||null);
+}
+/* one daily bar for an open Top-Down position. Order: stop first (conservative), then T1 (half off, stop to breakeven), T2, then end-of-day exits.
+   tl = Action Line trailing level for this day (bounce setups), s20 = 20-day average, held = days held including entry day */
+function manageDay(pos, bar, s20, tl, held, afterEntryDay){
+  const sd=pos.side, ev=[];
+  if(sd>0? bar.l<=pos.stop : bar.h>=pos.stop){ ev.push({type: pos.partial?'breakeven':'stop', px: sd>0? Math.min(bar.o,pos.stop) : Math.max(bar.o,pos.stop), frac: pos.partial?0.5:1, final:true}); return ev; }
+  if(!pos.partial && (sd>0? bar.h>=pos.t1 : bar.l<=pos.t1)){ ev.push({type:'t1', px:pos.t1, frac:0.5}); pos.partial=true; pos.stop=pos.entry; }
+  if(pos.partial && (sd>0? bar.h>=pos.t2 : bar.l<=pos.t2)){ ev.push({type:'t2', px:pos.t2, frac:0.5, final:true}); return ev; }
+  const f=pos.partial?0.5:1;
+  if(tl!=null && (sd>0? bar.c<tl : bar.c>tl)){ ev.push({type:'line', px:bar.c, frac:f, final:true}); return ev; }
+  if(pos.setup!=='bounce' && afterEntryDay && s20!=null && (sd>0? bar.c<s20 : bar.c>s20)){ ev.push({type:'sma20', px:bar.c, frac:f, final:true}); return ev; }
+  if(held>=30){ ev.push({type:'tdtime', px:bar.c, frac:f, final:true}); }
+  return ev;
+}
+// trailing exit level for day j of an open position
+function trailLevel(pos, j){ if(pos.setup==='bounce' && pos.action) return pos.action.pa + pos.action.slope*(j-pos.action.ia) - pos.side*0.3*pos.atr; return null; }
+
+/* ---------- portfolio backtest (daily resolution; entry at the next open stands in for the 15-min trigger) ---------- */
+function backtest(series, cfg, startDate){
+  const syms=Object.keys(series); const P={}, idx={}; for(const s of syms){ P[s]=prep(series[s]); P[s].fast=true; idx[s]={}; series[s].forEach((x,i)=>idx[s][dOf(x.t)]=i); }
+  const dates=[...new Set(syms.flatMap(s=>series[s].map(x=>dOf(x.t))))].sort();
+  const risk=E.ACCOUNT*cfg.riskPct, maxOpen=cfg.maxOpenTD||5, cap=cfg.maxSwingNotional||10000; const open=[], closed=[]; let pending=[];
+  for(const date of dates){
+    for(const p of pending){ if(open.length>=maxOpen) break; if(open.some(o=>o.sym===p.sym)) continue; const i=idx[p.sym][date]; if(i==null) continue;
+      const bar=series[p.sym][i]; const s=p.sig; if(Math.abs(bar.o-s.entry)>1.0*s.atr) continue;   // gapped too far: skip, do not chase
+      const entry=bar.o, stop=entry-s.side*s.risk; const qty=E.sizeShares(entry,stop,risk,cap); if(qty<1) continue;
+      open.push({sym:p.sym, side:s.side, setup:s.setup, entry, stop, stop0:stop, t1:entry+s.side*2*s.risk, t2:s.t2+(entry-s.entry), qty, ei:i, date, atr:s.atr, action:s.action, partial:false, evs:[]}); }
+    pending=[];
+    for(let k=open.length-1;k>=0;k--){ const pos=open[k]; const i=idx[pos.sym][date]; if(i==null) continue; const bar=series[pos.sym][i];
+      const evs=manageDay(pos, bar, smaAt(series[pos.sym],i,20), trailLevel(pos,i), i-pos.ei+1, i>pos.ei); pos.evs.push(...evs); const done = evs.length && evs[evs.length-1].final ? evs[evs.length-1].type : null;
+      if(done){ const R=E.rOf(pos,pos.evs); closed.push({sym:pos.sym, side:pos.side, setup:pos.setup, date:pos.date, xdate:date, R, pnl:R*pos.qty*Math.abs(pos.entry-pos.stop0), days:i-pos.ei+1, how:pos.evs.map(e=>e.type).join('+')}); open.splice(k,1); } }
+    if(startDate && date<startDate) continue;
+    const cands=[]; for(const s of syms){ const i=idx[s][date]; if(i==null || open.some(o=>o.sym===s)) continue;
+      const d=series[s]; const s50=smaAt(d,i,50); if(s50==null) continue;
+      const sig=signal(P[s], i); if(sig && !sig.rejected) cands.push({sym:s, sig}); }
+    cands.sort((a,b)=> (a.sig.setup===b.sig.setup? 0 : (a.sig.setup==='bounce'?-1:1)) || ((b.sig.action?b.sig.action.touches:0)-(a.sig.action?a.sig.action.touches:0)));
+    pending=cands;
+  }
+  return {closed, open};
+}
+
+/* ---------- intraday confirmation (live): hourly holding a higher low + 15-min trigger ---------- */
+function confirm(b60, b15, side){
+  if(!b60 || b60.length<6 || !b15 || b15.length<4) return {ok:false, note:'Waiting for hourly and 15-min bars'};
+  const e20=E.emaArr(b60.map(b=>b.c),20); const hc=b60[b60.length-1].c; const he=e20[e20.length-1];
+  const ph=pivots(b60,2); const lows=confirmed(side>0?ph.lows:ph.highs,2,b60.length-1).slice(-2);
+  const hl = lows.length<2 ? true : (side>0? lows[1].p>lows[0].p : lows[1].p<lows[0].p);
+  if(!(side>0? hc>he : hc<he)) return {ok:false, note:'Hourly still on the wrong side of its 20 EMA'};
+  if(!hl) return {ok:false, note:'Hourly has not made a '+(side>0?'higher low':'lower high')+' yet'};
+  const n=b15.length, x=b15[n-1], p1=b15[n-2], p2=b15[n-3]; const avgV=b15.slice(Math.max(0,n-21),n-1).reduce((s,y)=>s+y.v,0)/Math.max(1,Math.min(20,n-1));
+  const trig = side>0? x.c>Math.max(p1.h,p2.h) : x.c<Math.min(p1.l,p2.l);
+  if(!trig) return {ok:false, note:'Waiting for the 15-min break of the last two bars'};
+  if(x.v<avgV*0.9) return {ok:false, note:'15-min break on light volume'};
+  return {ok:true, note:'Hourly '+(side>0?'higher low':'lower high')+' + 15-min break', px:x.c};
+}
+// lines for any timeframe's bars, for the chart
+function chartRead(bars){ const n=bars.length; if(n<20) return null; const atr=atrOf(bars,n-1); const pv=pivots(bars,n>200?3:2);
+  return {sup:trendLine(bars,pv,'support',atr,n-1,{window:Math.min(150,n)}), res:trendLine(bars,pv,'resist',atr,n-1,{window:Math.min(150,n)}),
+    levels:levels([{list:confirmed(pv.highs,pv.k,n-1).concat(confirmed(pv.lows,pv.k,n-1)).filter(x=>x.i>=n-260), w:2}], bars[n-1].c, atr*0.7), trend:trendOf(bars,pv,n-1,20).trend, atr}; }
+
+return {manageDay, resample, pivots, trendLine, levels, trendOf, prep, analyze, signal, trailLevel, backtest, confirm, chartRead, smaAt, atrOf, dOf};
+})(E);
+if(typeof module!=='undefined') module.exports=TD;
+
+</script>
+<script>
+(function(){
+const {useState,useEffect,useRef,useCallback,useMemo} = React;
+const html = htm.bind(React.createElement);
+const TABS = ['m1','m5','m15','sw','td'];
+const INTRA = k => k==='m1'||k==='m5'||k==='m15';
+const TABNAME = {m1:'1-min Momentum', m5:'5-min Pullback', m15:'15-min Trend', sw:'Swing Stocks', td:'Top-Down Trendline'};
+const SELF_SLACK = 'U03TY5A0JL8';
+const PIN_DEFAULT = ['NVDA','TSLA','GLD','SLV','USO'];
+const BT_DEFAULT = 'NVDA TSLA AAPL AMD META AMZN MSFT AVGO MU PLTR SPY QQQ GLD SLV USO';
+
+/* ---------- formatting ---------- */
+const f2 = n => Number.isFinite(n) ? n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}) : '–';
+const money = (n, sign=true) => { if(!Number.isFinite(n)) return '–'; const s = n<0?'−':(sign&&n>0?'+':''); return s+'$'+Math.abs(Math.round(n)).toLocaleString('en-US'); };
+const pct = (n,d=1) => Number.isFinite(n) ? (n>=0?'+':'')+n.toFixed(d)+'%' : '–';
+const cls = n => n>0?'up':(n<0?'dn':'');
+const tms = ms => ms ? new Intl.DateTimeFormat('en-US',{timeZone:'America/Chicago',hour:'numeric',minute:'2-digit'}).format(new Date(ms)) : '–';
+const dyear = d => d? new Date(d+'T12:00:00Z').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric',timeZone:'UTC'}) : '–';
+const dshort = d => { if(!d) return '–'; const x=new Date(d+'T12:00:00Z'); return x.toLocaleDateString('en-US',{month:'short',day:'numeric',timeZone:'UTC'}); };
+/* ---------- earnings calendar (TradingView data, written to the board's database by Claude) ---------- */
+let EARN = {map:{}, asOf:null, source:null};
+// crowd lean from Liquid (share of Liquid traders long), written by Claude's morning task. Board tickers: GLD=GOLD, SLV=SILVER, USO=WTI oil, SPY=S&P 500
+let CROWD = {map:{}, asOf:null};
+const CBADGE = sym=>{ const c=CROWD.map[sym]; if(!c || c.longPct==null) return null; const lp=c.longPct;
+  const k = lp<=35? 'win' : lp>=65? 'loss' : ''; const lean = lp<=35? 'crowd short' : lp>=65? 'crowd long' : 'crowd balanced';
+  return html` <span className=${'pill '+k} title=${`Liquid traders: ${lp}% long (${lean})${c.smartLongPct!=null?` · profitable traders ${c.smartLongPct}% long`:''} · as of ${CROWD.asOf||'?'}`}>${lp}% L</span>`; };
+const EARN_DAYS = 14;
+const wdOf = d => ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][new Date(d+'T12:00:00Z').getUTCDay()];
+function prevSession(d){ let x=E.shiftDays(d,-1); while(wdOf(x)==='Sat'||wdOf(x)==='Sun') x=E.shiftDays(x,-1); return x; }
+// next report on or after today: {date, when:'amc'|'bmo'|'unk', days, lastDay (last session to hold through, exit at 2:55 PM)}
+function earnOf(sym, today){ const e=EARN.map[sym]; if(!e || !e.date) return null; const days=E.dte(today, e.date); if(days<0) return null;
+  return {...e, days, lastDay: e.when==='amc'? e.date : prevSession(e.date)}; }
+function earnBlock(sym, today){ const e=earnOf(sym, today); return e && e.days<=EARN_DAYS ? e : null; }
+function earnTxt(e){ return dshort(e.date)+(e.when==='amc'?' after close':(e.when==='bmo'?' before open':' (time not set)'))+' · '+(e.days===0?'today':(e.days===1?'tomorrow':'in '+e.days+' days')); }
+function earnStale(today){ return !EARN.asOf || E.dte(EARN.asOf, today)>7; }
+const EBADGE = (sym, maxDays=30)=>{ const e=earnOf(sym, E.ct(Date.now()).date); if(!e || e.days>maxDays) return null;
+  return html` <span className=${'pill '+(e.days<=EARN_DAYS?'loss':'')} title=${'Earnings '+earnTxt(e)}>ER ${e.days===0?'today':dshort(e.date)}</span>`; };
+const lsGet=(k,d)=>{ try{ const v=localStorage.getItem(k); return v==null?d:JSON.parse(v); }catch(e){ return d; } };
+const lsSet=(k,v)=>{ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(e){} };
+const sleep = ms => new Promise(r=>setTimeout(r,ms));
+
+/* ---------- Request budget: the Claude app caps how many local tool calls a page makes per minute (shared by every open board).
+   One governor paces every call: priority 0 = trade management, 1 = live data, 2 = scans, 3 = backtests.
+   On "rate_limited" it pauses, cuts the pace by 40%, and creeps back up after 2 quiet minutes. ---------- */
+const GOV={rate:36, max:90, min:6, tokens:2, last:Date.now(), pausedUntil:0, okSince:Date.now(), queue:[], timer:null, limited:0, lastLimitAt:0};
+function govRefill(){ const n=Date.now(); GOV.tokens=Math.min(Math.max(1,GOV.rate/20), GOV.tokens+(n-GOV.last)/60000*GOV.rate); GOV.last=n; }
+function govSched(ms){ if(GOV.timer) return; GOV.timer=setTimeout(()=>{ GOV.timer=null; govPump(); }, Math.max(30,ms)); }
+function govPump(){ govRefill(); const n=Date.now(); if(n<GOV.pausedUntil){ govSched(GOV.pausedUntil-n); return; }
+  GOV.queue.sort((x,y)=>x.pr-y.pr || x.t-y.t); while(GOV.queue.length && GOV.tokens>=1){ GOV.tokens-=1; GOV.queue.shift().go(); }
+  if(GOV.queue.length) govSched((1-GOV.tokens)/GOV.rate*60000); }
+function govTake(pr){ return new Promise(r=>{ GOV.queue.push({pr, t:Date.now(), go:r}); govPump(); }); }
+function govLimited(ms){ const n=Date.now(); if(n-GOV.lastLimitAt>5000) GOV.rate=Math.max(GOV.min, Math.round(GOV.rate*0.6)); GOV.lastLimitAt=n; GOV.limited++; GOV.tokens=0; GOV.okSince=n; GOV.pausedUntil=Math.max(GOV.pausedUntil, n+Math.max(ms||0, 15000)); }
+function govOk(){ const n=Date.now(); if(n-GOV.okSince>120000 && GOV.rate<GOV.max){ GOV.rate=Math.min(GOV.max, GOV.rate+4); GOV.okSince=n; } }
+const LANES={live:{active:0,max:2,wait:[]}, bulk:{active:0,max:1,wait:[]}};
+const PRI={mgmt:0, live:1, bulk:2, bt:3};
+const ERRLOG=[]; const STATS={ok:0, fail:0, retried:0};
+async function slot(lane, fn){ const Lq=LANES[lane]||LANES.live; if(Lq.active>=Lq.max) await new Promise(r=>Lq.wait.push(r)); Lq.active++; try{ return await fn(); } finally{ Lq.active--; const w=Lq.wait.shift(); if(w) w(); } }
+const HARD=['no_mcp','not_granted','not_in_manifest','server_not_connected','capability_disabled','capability_removed','blocked_by_policy','bad_request','cancelled','approval_required','user_changed'];
+async function hostCall(mcp, server, tool, input, lane='live'){
+  if(!mcp) throw {code:'no_mcp', message:'No connection in this view'};
+  const pr=PRI[lane]??1, sl=(lane==='bulk'||lane==='bt')?'bulk':'live'; let tries=0, rl=0;
+  for(;;){
+    await govTake(pr);
+    try{ const r=await slot(sl, ()=>mcp.callTool(server, tool, input, {cache:false})); STATS.ok++; govOk(); return r; }
+    catch(e){ const code=(e&&e.code)||'error'; const msg=String((e&&e.message)||'').slice(0,220);
+      ERRLOG.unshift({at:Date.now(), code, msg, path:(input&&input.path? input.path.split('/').slice(0,6).join('/') : server+' '+tool), lane, attempt:tries+rl+1}); if(ERRLOG.length>40) ERRLOG.length=40;
+      if(code==='rate_limited'){ govLimited(e&&e.retryAfterMs); rl++; if(rl>12){ STATS.fail++; throw e; } STATS.retried++; continue; }
+      tries++; if(HARD.includes(code) || tries>=4){ STATS.fail++; throw e; }
+      STATS.retried++; await sleep(Math.min(8000, (e&&e.retryAfterMs) || (700*Math.pow(2,tries-1)+Math.random()*500))); } }
+}
+async function massive(mcp, path, params, lane='live'){ const r=await hostCall(mcp,'host:massive','call_api', params?{path,params}:{path}, lane); return E.resultText(r); }
+
+/* ---------- sounds ---------- */
+let AC=null;
+function audioOn(){ try{ AC=AC||new (window.AudioContext||window.webkitAudioContext)(); if(AC.state==='suspended') AC.resume(); return true; }catch(e){ return false; } }
+function tone(notes, type='triangle', gain=0.35){ if(!AC) return; const t0=AC.currentTime+0.02; const out=AC.createGain(); out.gain.value=0.5; out.connect(AC.destination);
+  notes.forEach(([dt,f,len])=>{ const o=AC.createOscillator(); o.type=type; o.frequency.value=f; const g=AC.createGain(); const st=t0+dt;
+    g.gain.setValueAtTime(0.0001,st); g.gain.exponentialRampToValueAtTime(gain,st+0.01); g.gain.exponentialRampToValueAtTime(0.0001,st+(len||0.35)); o.connect(g); g.connect(out); o.start(st); o.stop(st+(len||0.35)+0.05); }); }
+const S_GO = ()=>tone([[0,1318.5,0.5],[0.12,1760,0.7]],'sine',0.3);
+const S_TP = ()=>tone([[0,1046.5],[0.12,1318.5],[0.24,1568]]);
+const S_STOP = ()=>tone([[0,392,0.45],[0.22,261.6,0.5]]);
+const S_ALARM = ()=>tone([[0,880,0.25],[0.3,880,0.25],[0.6,660,0.5]],'square',0.18);
+
+/* ---------- small components ---------- */
+function Curve({pts, h=110}){
+  if(!pts || pts.length<2) return html`<div className="empty">The equity curve appears after the first closed trade.</div>`;
+  const W=600, ys=pts.map(p=>p.eq), lo=Math.min(...ys), hi=Math.max(...ys), pad=(hi-lo)*0.1||50;
+  const sx=i=>4+i*(W-8)/(pts.length-1), sy=v=>h-6-((v-lo+pad)/((hi-lo)+2*pad))*(h-12);
+  const base=sy(pts[0].eq); const last=pts[pts.length-1].eq; const col = last>=pts[0].eq ? 'var(--go)' : 'var(--warn)';
+  const d=pts.map((p,i)=>(i?'L':'M')+sx(i).toFixed(1)+','+sy(p.eq).toFixed(1)).join(' ');
+  const gid='g'+Math.abs(Math.round(last*7+pts.length*13))%100000;
+  return html`<svg className="curve" viewBox=${'0 0 '+W+' '+h} preserveAspectRatio="none" role="img" aria-label="Account equity after each closed trade">
+    <defs><linearGradient id=${gid} x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor=${col} stopOpacity="0.32"/><stop offset="1" stopColor=${col} stopOpacity="0"/></linearGradient></defs>
+    <line x1="0" x2=${W} y1=${base} y2=${base} stroke="var(--line-2)" strokeDasharray="4 4" vectorEffect="non-scaling-stroke"/>
+    <path d=${d+' L'+sx(pts.length-1)+','+h+' L'+sx(0)+','+h+' Z'} fill=${'url(#'+gid+')'}/>
+    <path d=${d} fill="none" stroke=${col} strokeWidth="2" vectorEffect="non-scaling-stroke"/>
+    <circle cx=${sx(pts.length-1)} cy=${sy(last)} r="4" fill=${col}/>
+  </svg>`;
+}
+function Stat({k,v,c}){ return html`<div className="stat"><div className="k">${k}</div><div className=${'v '+(c||'')}>${v}</div></div>`; }
+
+/* ======================================================================= */
+function App(){
+  const [mcp,setMcp]=useState(null), [db,setDb]=useState(null), [capState,setCapState]=useState('loading');
+  const [trades,setTrades]=useState([]), [signals,setSignals]=useState([]), [bts,setBts]=useState({}), [scans,setScans]=useState({});
+  const [tab,setTab]=useState(()=>lsGet('v3-tab','scan'));
+  const [cfg,setCfg]=useState(()=>({...E.DEFAULTS, slackData:true, slackGo:false, slackTo:SELF_SLACK, ...lsGet('v3-cfg',{})}));
+  const [pins,setPins]=useState(()=>lsGet('v3-pins',PIN_DEFAULT));
+  const [sound,setSound]=useState(false);
+  const [chartSym,setChartSym]=useState(()=>lsGet('v3-chart','NVDA')); useEffect(()=>lsSet('v3-chart',chartSym),[chartSym]);
+  const [toasts,setToasts]=useState([]); const [,setEarnAt]=useState(0);
+  const [,setTick]=useState(0);
+  const L=useRef({snap:{}, snapAt:0, daily:{}, b1:{}, jev:{}, inPlay:[], sigs:{m1:{},m5:{},m15:{}}, rt:{}, opening:new Set(), q:0, busy:{},
+    health:{lastOk:0, fails:0, lastErr:null, alertAt:0, calls:0}, next:{snap:0, bars:0, marks:0, scan:Date.now()+20000}, scanRun:null, wake:null});
+  const tradesRef=useRef([]); tradesRef.current=trades.map(t=>{ const p=(L.current.patched||{})[t.id]; return p? Object.assign(t,p) : t; });
+  const cfgRef=useRef(cfg); cfgRef.current=cfg; const pinsRef=useRef(pins); pinsRef.current=pins; const soundRef=useRef(sound); soundRef.current=sound;
+  useEffect(()=>lsSet('v3-tab',tab),[tab]); useEffect(()=>lsSet('v3-cfg',{riskPct:cfg.riskPct, requireJev:cfg.requireJev, slackData:cfg.slackData, slackGo:cfg.slackGo, slackTo:cfg.slackTo, jevTabs:cfg.jevTabs}),[cfg]); useEffect(()=>lsSet('v3-pins',pins),[pins]);
+  const toast=(text,kind='go')=>{ const id=Math.random(); setToasts(x=>[...x,{id,text,kind}].slice(-4)); setTimeout(()=>setToasts(x=>x.filter(z=>z.id!==id)),4200); };
+
+  /* ---------- capabilities ---------- */
+  useEffect(()=>{ let offs=[];
+    (async()=>{
+      const c=window.claude; if(!c||!c.use){ setCapState('none'); return; }
+      c.use('mcp').then(m=>{ setMcp(m); setCapState(m?'ok':'nomcp'); }).catch(()=>setCapState('nomcp'));
+      const d=await c.use('db').catch(()=>null); if(!d) return; setDb(d);
+      offs.push(d.collection('v3trades').onSnapshot(s=>setTrades(s.docs.map(x=>({id:x.id,...x.data()}))), ()=>{}));
+      offs.push(d.collection('v3signals').onSnapshot(s=>setSignals(s.docs.map(x=>({id:x.id,...x.data()}))), ()=>{}));
+      offs.push(d.collection('v3bt').onSnapshot(s=>{ const o={}; s.docs.forEach(x=>o[x.id]=x.data()); setBts(o); }, ()=>{}));
+      offs.push(d.collection('v3earn').onSnapshot(s=>{ const x=s.docs.find(z=>z.id==='next'); if(x){ const v=x.data()||{}; EARN={map:v.map||{}, asOf:v.asOf||null, source:v.source||null}; setEarnAt(Date.now()); } const y=s.docs.find(z=>z.id==='crowd'); if(y){ const v=y.data()||{}; CROWD={map:v.map||{}, asOf:v.asOf||null}; setEarnAt(Date.now()); } }, ()=>{}));
+      offs.push(d.collection('v3scan').onSnapshot(s=>{ const o={}; s.docs.forEach(x=>o[x.id]=x.data()); setScans(o); }, ()=>{}));
+    })();
+    return ()=>offs.forEach(f=>{ try{f();}catch(e){} });
+  },[]);
+
+  /* ---------- data calls (with health tracking) ---------- */
+  const api = useCallback(async (path, params, lane)=>{ params=params||undefined;
+    if(!mcp) throw {code:'no_mcp'}; const H=L.current.health; H.calls++;
+    try{ const txt=await massive(mcp, path, params, lane||'live'); H.lastOk=Date.now(); H.fails=0; return txt; }
+    catch(e){ H.fails++; H.lastErr=(e&&e.code)||'error'; throw e; }
+  },[mcp]);
+  const apiAll = useCallback(async (path, params, onPage)=>{
+    let rows=[], p={path, params}, guard=0;
+    while(p && guard++<80){ const txt=await api(p.path, p.params); rows=rows.concat(E.parseCSV(txt)); onPage&&onPage(guard); p=E.nextPage(txt); }
+    return rows;
+  },[api]);
+  const now = ()=>E.ct(Date.now());
+  const loadDaily = useCallback(async (sym, calDays=220, forceToday)=>{
+    const t=now(); const from=E.shiftDays(t.date,-calDays);
+    const bars=E.toBars(E.parseCSV(await api(`/v2/aggs/ticker/${sym}/range/1/day/${from}/${t.date}`, {adjusted:'true',sort:'asc',limit:5000})));
+    const done=bars.filter(b=>E.ct(b.t+12*3600e3).date<t.date);
+    const ctx=E.dailyCtx(done); const rec={date:t.date, ctx, bars, done}; L.current.daily[sym]=rec; return rec;
+  },[api]);
+  const loadBars = useCallback(async (sym, date)=>{
+    const rows=E.parseCSV(await api(`/v2/aggs/ticker/${sym}/range/1/minute/${date}/${date}`, {adjusted:'true',sort:'asc',limit:50000}));
+    return E.rth(E.toBars(rows));
+  },[api]);
+  const optQuote = useCallback(async (sym, ticker)=>{
+    const r=E.parseCSV(await api(`/v3/snapshot/options/${sym}/${ticker}`, null, 'mgmt'))[0]; if(!r) return null;
+    const bid=+r.last_quote_bid, ask=+r.last_quote_ask, mid = bid>0&&ask>0 ? (bid+ask)/2 : (+r.last_quote_midpoint||+r.day_close||null);
+    return {mid, bid: bid>0?bid:null, ask: ask>0?ask:null, delta:+r.greeks_delta||null};
+  },[api]);
+  const optMinute = useCallback(async (ticker, date, min)=>{
+    const bars=E.rth(E.toBars(E.parseCSV(await api(`/v2/aggs/ticker/${ticker}/range/1/minute/${date}/${date}`, {adjusted:'true',sort:'asc',limit:50000}))));
+    const b=bars.filter(x=>x.min<=min); return b.length? b[b.length-1].c : (bars.length? bars[0].o : null);
+  },[api]);
+  const pickContract = useCallback(async (sym, side, S0, minD=14, maxD=35, target=21)=>{
+    const t=now();
+    const rows=E.parseCSV(await api(`/v3/snapshot/options/${sym}`, {contract_type: side>0?'call':'put', 'expiration_date.gte':E.shiftDays(t.date,minD), 'expiration_date.lte':E.shiftDays(t.date,maxD),
+      'strike_price.gte': Math.floor(S0*0.95), 'strike_price.lte': Math.ceil(S0*1.05), limit:250})).filter(r=>r.details_ticker && r.details_expiration_date);
+    if(!rows.length) return null;
+    const exps=[...new Set(rows.map(r=>r.details_expiration_date))]; const exp=exps.sort((a,b)=>Math.abs(E.dte(t.date,a)-target)-Math.abs(E.dte(t.date,b)-target))[0];
+    const r=rows.filter(x=>x.details_expiration_date===exp).sort((a,b)=>Math.abs(+a.details_strike_price-S0)-Math.abs(+b.details_strike_price-S0))[0];
+    const bid=+r.last_quote_bid, ask=+r.last_quote_ask; const mid=bid>0&&ask>0?(bid+ask)/2:+r.last_quote_midpoint;
+    if(!(mid>0)) return null;
+    return {ticker:r.details_ticker, strike:+r.details_strike_price, expiry:exp, type:side>0?'call':'put', delta:Math.abs(+r.greeks_delta)||0.5, mid, bid:bid>0?bid:null, ask:ask>0?ask:null};
+  },[api]);
+  const loadJev = useCallback(async (sym)=>{
+    const t=now(); const c=L.current.jev[sym]; if(c && c.date===t.date) return c;
+    try{
+      const txt=await api('/v2/reference/news', {ticker:sym, 'published_utc.gte':E.shiftDays(t.date,-1)+'T19:00:00Z', order:'desc', sort:'published_utc', limit:15});
+      const heads=E.parseCSV(txt).map(r=>r.title).filter(Boolean).slice(0,15);
+      if(!heads.length){ const r={date:t.date, pUp:null, n:0}; L.current.jev[sym]=r; return r; }
+      const ev=await hostCall(mcp,'host:evaluate','evaluate',{questions:{up:{type:'noul',instructions:`Given these news headlines published since yesterday's close, is ${sym}'s stock price more likely to rise than fall during today's regular session?`}}, state:{ticker:sym, headlines:heads}}, 'live');
+      const p=ev && ev.payload && ev.payload.answers && ev.payload.answers.up ? ev.payload.answers.up.noul : null;
+      const r={date:t.date, pUp: typeof p==='number'?p:null, n:heads.length}; L.current.jev[sym]=r; return r;
+    }catch(e){ return {date:t.date, pUp:null, n:0, err:(e&&e.code)||'error'}; }
+  },[api, mcp]);
+  const slack = useCallback(async (text)=>{
+    if(!mcp) return; try{ await mcp.callTool('Slack','slack_send_message',{channel_id: cfgRef.current.slackTo||SELF_SLACK, message:text}, {cache:false}); }catch(e){}
+  },[mcp]);
+
+  /* ---------- db writes ---------- */
+  const put = useCallback(async (coll, id, data, merge)=>{ if(!db) return false; try{ const ref=db.collection(coll).doc(id); if(merge) await ref.update(data); else await ref.set(data); return true; }catch(e){ return false; } },[db]);
+
+  /* ---------- trade helpers ---------- */
+  const tabTrades = (k)=>tradesRef.current.filter(t=>t.tab===k);
+  const markPrice = (tr)=>{ const s=L.current.snap[tr.sym]; return s? s.px : null; };
+  const unrealOf = (tr)=>{
+    if(tr.status!=='open') return 0; const rem=tr.qty-(tr.partialQty||0); const part=tr.partialQty? (tr.instr==='option'? (tr.partialFill-tr.entryFill)*100*tr.partialQty : tr.side*(tr.partialFill-tr.entryFill)*tr.partialQty) : 0;
+    if(tr.instr==='option'){ const m=tr.mark??tr.entryFill; return part + (m-tr.entryFill)*100*rem; }
+    const px=markPrice(tr)??tr.entryFill; return part + tr.side*(px-tr.entryFill)*rem; };
+
+  // build the engine runtime for an open trade
+  const isClosed = (tr)=> tr.status==='closed' || ((L.current.patched||{})[tr.id]||{}).status==='closed';
+  const rtOf = (tr)=>{ if(isClosed(tr)) return {open:false, synced:true}; let rt=L.current.rt[tr.id]; if(!rt){ rt={side:tr.side, entry:tr.entryUnder, stop:tr.stop, stop0:tr.stop0, t1:tr.t1, t2:tr.t2, exitRule:tr.exitRule||null, partial:!!tr.partialAt, open:true, entryMin:tr.entryMin, setup:tr.setup, lastMin:tr.entryMin, synced:false}; L.current.rt[tr.id]=rt; } return rt; };
+
+  // execute one engine event on a trade doc (fills from live quote, or historical option bar when catching up)
+  const execEvent = useCallback((tr, ev, historical)=>{
+    const Q=(L.current.tq=L.current.tq||{}); const run=()=>execNowRef.current(tr, ev, historical);
+    Q[tr.id]=(Q[tr.id]||Promise.resolve()).then(run, run); return Q[tr.id];
+  },[]);
+  const remember = (id, patch)=>{ const P=(L.current.patched=L.current.patched||{}); P[id]={...(P[id]||{}), ...patch}; };
+  const execEventNow = async (tr, ev, historical)=>{
+    Object.assign(tr, (L.current.patched||{})[tr.id]||{}); if(tr.status==='closed') return;
+    if(ev.type==='t1' && tr.partialAt) return;
+    const isOpt = tr.instr==='option'; let fill, bid;
+    if(isOpt){
+      let q=null; if(!historical){ try{ q=await optQuote(tr.sym, tr.contract.ticker); }catch(e){} }
+      if(q && q.mid>0){ fill=q.mid; bid=q.bid??q.mid; }
+      else { let h=null; try{ h=await optMinute(tr.contract.ticker, tr.date, ev.min); }catch(e){} fill = h>0? h : (tr.mark??tr.entryFill); bid=fill; }
+    } else { const s=L.current.snap[tr.sym]; const half = s && s.ask>0 && s.bid>0 && s.ask>s.bid ? (s.ask-s.bid)/2 : 0.01; fill=ev.px; bid = tr.side>0? ev.px-half : ev.px+half; }
+    let wk=null;
+    if(isOpt && tr.weekly && tr.weekly.ticker){ let q=null; if(!historical){ try{ q=await optQuote(tr.sym, tr.weekly.ticker); }catch(e){} }
+      let wf, wb; if(q && q.mid>0){ wf=q.mid; wb=q.bid??q.mid; } else { let h=null; try{ h=await optMinute(tr.weekly.ticker, tr.date, ev.min); }catch(e){} wf = h>0? h : tr.weekly.entryFill; wb=wf; }
+      wk={fill:wf, bid:wb}; }
+    const evs=[...(tr.events||[]), {type:ev.type, min:ev.min, under:+ev.px.toFixed(4), fill:+(+fill).toFixed(4), hist:!!historical}];
+    const unit = isOpt? 100 : 1; const sgn = isOpt? 1 : tr.side;
+    if(ev.type==='t1' && ev.frac<1){
+      const pq = Math.floor(tr.qty/2);
+      const patch={events:evs, stop:tr.entryUnder, partialAt:Date.now(), partialMin:ev.min};
+      if(pq>=1){ Object.assign(patch,{partialQty:pq, partialFill:+fill, partialBid:+bid}); }
+      if(wk){ const wpq=Math.floor(tr.weekly.qty/2); patch.weekly={...tr.weekly, ...(wpq>=1? {partialQty:wpq, partialFill:+wk.fill, partialBid:+wk.bid} : {})}; }
+      remember(tr.id, patch); Object.assign(tr, patch); await put('v3trades', tr.id, patch, true);
+      toast(tr.sym+' · '+TABNAME[tr.tab]+' · T1 hit, stop to breakeven','go'); if(soundRef.current) S_TP();
+      return;
+    }
+    const rem = tr.qty-(tr.partialQty||0);
+    const partP = tr.partialQty ? sgn*(tr.partialFill-tr.entryFill)*unit*tr.partialQty : 0;
+    const partS = tr.partialQty ? sgn*((tr.partialBid??tr.partialFill)-(tr.entryAsk??tr.entryFill))*unit*tr.partialQty : 0;
+    const pnl = partP + sgn*(fill-tr.entryFill)*unit*rem;
+    const pnlSpread = partS + sgn*(bid-(tr.entryAsk??tr.entryFill))*unit*rem;
+    const hasT1=evs.some(x=>x.type==='t1'); const uEvs=evs.map(e=>({px:e.under, frac: e.type==='t1'?0.5:(hasT1?0.5:1)}));
+    const R = E.rOf({side:tr.side, entry:tr.entryUnder, stop0:tr.stop0}, uEvs);
+    const reasonTxt={stop:'Stop', breakeven:'Breakeven stop', t2:'Target 2', vwap:'Closed through VWAP', time:'2:40 flat', swstop:'Stop', sma:'Close under 20-day', maxhold:'20-day max hold', line:'Daily close through the Action Line', sma20:'Close through the 20-day', tdtime:'30-day max hold', earnings:'Out before earnings'}[ev.type]||ev.type;
+    let wpatch=null;
+    if(wk){ const W=tr.weekly; const wrem=W.qty-(W.partialQty||0);
+      const wp=(W.partialQty? (W.partialFill-W.entryFill)*100*W.partialQty : 0) + (wk.fill-W.entryFill)*100*wrem;
+      const ws=(W.partialQty? ((W.partialBid??W.partialFill)-(W.entryAsk??W.entryFill))*100*W.partialQty : 0) + (wk.bid-(W.entryAsk??W.entryFill))*100*wrem;
+      wpatch={...W, exitFill:+wk.fill, exitBid:+wk.bid, pnl:Math.round(wp*100)/100, pnlSpread:Math.round(ws*100)/100}; }
+    const patch={status:'closed', events:evs, ...(wpatch?{weekly:wpatch}:{}), exitFill:+fill, exitBid:+bid, exitAt:Date.now(), exitMin:ev.min, exitUnder:ev.px, exitReason:reasonTxt+(historical?' (caught up)':''), pnl:Math.round(pnl*100)/100, pnlSpread:Math.round(pnlSpread*100)/100, R: R!=null? Math.round(R*100)/100 : null};
+    remember(tr.id, patch); Object.assign(tr, patch); delete L.current.rt[tr.id]; await put('v3trades', tr.id, patch, true);
+    toast(tr.sym+' · '+TABNAME[tr.tab]+' · '+reasonTxt+' · '+money(pnl), pnl>=0?'go':'stop'); if(soundRef.current) (pnl>=0?S_TP:S_STOP)();
+  };
+
+  const execNowRef=useRef(null); execNowRef.current=execEventNow;
+  // replay 1-min bars for an open intraday trade (catch-up after a reload or sleep)
+  const syncTrade = useCallback(async (tr, bars)=>{
+    const rt=rtOf(tr); if(!rt.open) return;
+    const t=now(); const live = tr.date===t.date;
+    const fresh = !rt.synced; let list = fresh ? bars.filter(b=>b.min>tr.entryMin) : bars.filter(b=>b.min>rt.lastMin);
+    if(fresh){ rt.partial=false; rt.stop=tr.stop0; rt.open=true; }
+    const applied = fresh ? (tr.events||[]).length : 0; let k=0;
+    for(const b of list){
+      if(live && b.min>=t.min) break;  // forming minute
+      const evs=E.stepTrade(rt, {...b, final:true}, bars); rt.lastMin=b.min;
+      for(const ev of evs){ k++; if(k<=applied) continue; await execEvent(tr, ev, !live || ev.min < t.min-2); }
+      if(!rt.open) break;
+    }
+    if(!live && rt.open){ const last=bars[bars.length-1]; if(last){ k++; if(k>applied) await execEvent(tr, {type:'time', px:last.c, frac:rt.partial?0.5:1, min:last.min}, true); } }
+    rt.synced=true;
+  },[execEvent]);
+
+  /* ---------- open a trade ---------- */
+  const logSignal = (tab, sym, sig, taken, reason, extra)=>{ const t=now(); const lk=tab+'|'+sym+'|'+t.date+'|'+(reason||'taken'); const LG=(L.current.logged=L.current.logged||new Set()); if(LG.has(lk)) return; LG.add(lk);
+    put('v3signals', `${t.date}-${tab}-${sym}-${sig.setup.replace(/[^a-z0-9]/gi,'')}-${sig.min}`, {tab, sym, date:t.date, min:sig.min, side:sig.side, setup:sig.setup, taken, reason:reason||null, at:Date.now(), ...(extra||{})}); };
+  const tryOpen = useCallback((tab, sym, sig, livePx)=>{
+    const Q=(L.current.oq=L.current.oq||{}); const run=()=>openNowRef.current(tab, sym, sig, livePx);
+    Q[tab]=(Q[tab]||Promise.resolve()).then(run, run); return Q[tab];
+  },[]);
+  const tryOpenNow = async (tab, sym, sig, livePx)=>{
+    const Lc=L.current, t=now(), c=cfgRef.current; const key=tab+'|'+sym+'|'+t.date+'|'+(sig.bar??sig.min);
+    if(Lc.opening.has(key)) return; Lc.opening.add(key);
+    try{
+      const mine=tabTrades(tab); const g=E.guard(mine.map(x=>({...x, unreal:unrealOf(x)})), t.date, c);
+      if(g.halted){ logSignal(tab,sym,sig,false,g.halted); return; }
+      const open=mine.filter(x=>x.status==='open');
+      if(open.some(x=>x.sym===sym)){ return; }
+      if(tab==='sw'||tab==='td'){ const eb=earnBlock(sym,t.date); if(eb){ logSignal(tab,sym,sig,false,'Earnings '+earnTxt(eb)+': no new swing positions within '+EARN_DAYS+' days of a report'); return; } }
+      if(open.length >= (tab==='sw'? c.maxOpenSwing : tab==='td'? (c.maxOpenTD||5) : c.maxOpenIntraday)){ logSignal(tab,sym,sig,false,'Max open positions'); return; }
+      const n = mine.filter(x=>x.sym===sym && x.date===t.date).length + 1;
+      const id = `${t.date}-${tab}-${sym}-${n}`; if(mine.some(x=>x.id===id)) return;
+      const entry = livePx ?? sig.entry; const shift = entry - sig.entry;  // keep the same risk distance from the live fill
+      const stop=sig.stop+shift, t1=sig.t1+shift, t2=sig.t2+shift;
+      const needJev = (c.jevTabs||{})[tab];
+      let jev=null;
+      if(needJev){ jev=await loadJev(sym); const pDir = jev.pUp==null? null : (sig.side>0? jev.pUp : 1-jev.pUp);
+        if(!(pDir>=c.jevMin)){ logSignal(tab,sym,sig,false,'Jev below '+c.jevMin+(pDir==null?' (no headlines)':' ('+pDir.toFixed(2)+')')); return; } }
+      const riskBudget = E.ACCOUNT*c.riskPct*(g.half?0.5:1);
+      let doc={tab, sym, date:t.date, n, side:sig.side, setup:sig.setup, status:'open', entryAt:Date.now(), entryMin:t.min, entryUnder:entry, stop0:stop, stop, t1, t2, exitRule:sig.exitRule||null, bar:sig.bar??null, half:!!g.half, events:[]};
+      let ok=false;
+      if(E.STRATS[tab] && E.STRATS[tab].instr==='option'){
+        let k=null; try{ k=await pickContract(sym, sig.side, entry); }catch(e){}
+        if(k){ const qty=E.sizeOptions(k.mid, k.delta, entry, stop, riskBudget, c.maxPremium);
+          if(qty<1){ logSignal(tab,sym,sig,false,'One contract costs more than $'+c.maxPremium); return; }
+          Object.assign(doc,{instr:'option', contract:{ticker:k.ticker, strike:k.strike, expiry:k.expiry, type:k.type, delta:+k.delta.toFixed(3)}, qty, entryFill:+k.mid.toFixed(4), entryBid:k.bid, entryAsk:k.ask??k.mid, mark:k.mid, markAt:Date.now()}); ok=true;
+          // weekly comparison leg: same signal, nearest weekly with at least 2 days left (paper only, does not count toward the account)
+          try{ const w=await pickContract(sym, sig.side, entry, 2, 9, 4);
+            const ew=earnOf(sym,t.date); if(w && ew && ew.date<=w.expiry) doc.weeklySkip='Earnings '+dshort(ew.date)+' before the weekly expires';
+            else if(w && w.expiry!==k.expiry && E.dte(t.date,w.expiry)>=2){ const wq=E.sizeOptions(w.mid, w.delta, entry, stop, riskBudget, c.maxPremium);
+              if(wq>=1) doc.weekly={ticker:w.ticker, strike:w.strike, expiry:w.expiry, delta:+w.delta.toFixed(3), qty:wq, entryFill:+w.mid.toFixed(4), entryAsk:w.ask??w.mid, dte:E.dte(t.date,w.expiry)}; } }catch(e){} }
+      }
+      if(!ok){ const qty=E.sizeShares(entry, stop, riskBudget, (tab==='sw'||tab==='td')? c.maxSwingNotional : c.maxIntradayNotional); if(qty<1){ logSignal(tab,sym,sig,false,'Size rounds to zero'); return; }
+        const s=Lc.snap[sym]; const ask = sig.side>0 ? (s&&s.ask>0? s.ask : entry+0.01) : (s&&s.bid>0? s.bid : entry-0.01);
+        Object.assign(doc,{instr:'shares', qty, entryFill:entry, entryAsk:ask, note: E.STRATS[tab]?'Option chain unavailable, paper traded as shares':null}); }
+      if(tab==='sw') Object.assign(doc,{sma20:sig.sma20??null, rvol:sig.rvol??null, swingDays:1});
+      if(tab==='td') Object.assign(doc,{tdSetup:sig.tdSetup, action:sig.action||null, atr:sig.atr, next:sig.next??null, trend:sig.trend||null, swingDays:1});
+      await put('v3trades', id, doc); logSignal(tab,sym,sig,true,null,{tradeId:id});
+      tradesRef.current=[...tradesRef.current, {id,...doc}];
+      L.current.rt[id]={side:doc.side, entry, stop, stop0:stop, t1, t2, exitRule:doc.exitRule, partial:false, open:true, entryMin:t.min, setup:doc.setup, lastMin:t.min, synced:true};
+      toast('GO IN · '+sym+' '+(sig.side>0?(doc.instr==='option'?'CALLS':'LONG'):(doc.instr==='option'?'PUTS':'SHORT'))+' · '+TABNAME[tab],'go'); if(soundRef.current) S_GO();
+      if(c.slackGo) slack(`GO IN (paper) · ${TABNAME[tab]} · ${sym} ${sig.side>0?'long':'short'} @ ${f2(entry)} · stop ${f2(stop)} · T1 ${f2(t1)} · T2 ${f2(t2)}${doc.contract?' · '+doc.contract.ticker+' x'+doc.qty+' @ $'+f2(doc.entryFill):' · '+doc.qty+' sh'}`);
+      if(!needJev && INTRA(tab)){ loadJev(sym).then(j=>{ if(j && j.pUp!=null) put('v3trades', id, {jev:{pUp:j.pUp, pDir: sig.side>0?j.pUp:1-j.pUp, n:j.n}}, true); }); }
+    } finally { setTimeout(()=>Lc.opening.delete(key), 60000); }
+  };
+
+  const openNowRef=useRef(null); openNowRef.current=tryOpenNow;
+  /* ---------- live loop pieces ---------- */
+  const phase = ()=>{ const t=now(); const wk=!['Sat','Sun'].includes(t.wd); if(!wk) return 'weekend'; if(t.min>=E.OPEN && t.min<E.CLOSE) return 'open'; if(t.min>=420 && t.min<E.OPEN) return 'pre'; return 'closed'; };
+  const doSnapshot = useCallback(async ()=>{
+    const Lc=L.current; const syms=[...new Set([...E.UNIVERSE, ...pinsRef.current])];
+    const rows=E.parseCSV(await api('/v2/snapshot/locale/us/markets/stocks/tickers', {tickers: syms.join(',')}, 'mgmt'));
+    const t=now(); const el=Math.min(1, Math.max(0.05, (t.min-E.OPEN)/390));
+    for(const r of rows){ const px = +r.lastTrade_p || +r.min_c || +r.day_c || +r.prevDay_c; if(!(px>0)) continue;
+      const pc=+r.prevDay_c, dv=+r.day_v, pv=+r.prevDay_v;
+      Lc.snap[r.ticker]={sym:r.ticker, px, bid:+r.lastQuote_p||null, ask:+r.lastQuote_P||null, chg: pc>0? (px/pc-1)*100 : +r.todaysChangePerc, open:+r.day_o||null, hi:+r.day_h||null, lo:+r.day_l||null,
+        vol:dv, prevVol:pv, prevClose:pc, dollarPrev: pc*pv, rvol: pv>0 && dv>0 ? dv/(pv*el) : null, gap: (+r.day_o>0 && pc>0)? (+r.day_o/pc-1)*100 : null, at:Date.now()}; }
+    Lc.snapAt=Date.now();
+    // in-play: pins + core commodities + top movers on volume
+    const all=Object.values(Lc.snap); const pinsS=new Set(pinsRef.current);
+    const elig=all.filter(s=>!pinsS.has(s.sym) && s.px>=10 && s.dollarPrev>=1e8);
+    elig.forEach(s=>s.score = Math.abs(s.chg||0)*Math.min(s.rvol||0.5,6) + (Math.abs(s.gap||0)>2?1:0));
+    elig.sort((a,b)=>b.score-a.score);
+    Lc.inPlay=[...pinsS, ...elig.filter(s=>(s.rvol||0)>=1.2 || Math.abs(s.chg||0)>=2).map(s=>s.sym)].slice(0,20);
+  },[api]);
+
+  const manageTick = useCallback(async ()=>{
+    const Lc=L.current, t=now(), ph=phase(); if(ph!=='open') return;
+    for(const tr of tradesRef.current.filter(x=>x.status==='open')){
+      const s=Lc.snap[tr.sym]; if(!s) continue;
+      if(tr.tab==='sw'){
+        if(tr.date===t.date && t.min<tr.entryMin) continue;
+        if(s.px<=tr.stop){ await execEvent(tr,{type:'swstop', px:Math.min(s.px,tr.stop), frac:1, min:t.min}, false); continue; }
+        { const ee=earnOf(tr.sym,t.date); if(ee && t.min>=895 && t.date===ee.lastDay && !(tr.date===t.date && tr.entryMin>=895)){ await execEvent(tr,{type:'earnings', px:s.px, frac:1, min:t.min}, false); continue; } }
+        if(t.min>=895 && tr.lastEodCheck!==t.date){
+          const d=Lc.daily[tr.sym]; if(d && d.done && d.done.length>=19){ const cl=d.done.slice(-19).map(x=>x.c); const sma=(cl.reduce((a,b)=>a+b,0)+s.px)/20;
+            const held = d.done.filter(x=>E.ct(x.t+12*3600e3).date>=tr.date).length + 1;
+            tr.lastEodCheck=t.date; put('v3trades',tr.id,{lastEodCheck:t.date, swingDays:held},true);
+            if(s.px<sma){ await execEvent(tr,{type:'sma', px:s.px, frac:1, min:t.min}, false); continue; }
+            if(held>=20){ await execEvent(tr,{type:'maxhold', px:s.px, frac:1, min:t.min}, false); continue; } } }
+        continue;
+      }
+      if(tr.tab==='td'){ await manageTD(tr, s, t); continue; }
+      if(!INTRA(tr.tab) || tr.date!==t.date) continue; const rt=rtOf(tr); if(!rt.synced || !rt.open) continue;
+      const evs=E.stepTrade(rt, {o:s.px,h:s.px,l:s.px,c:s.px,min:t.min, final:false}, null);
+      for(const ev of evs) await execEvent(tr, ev, false);
+    }
+  },[execEvent, put]);
+
+  // Top-Down position, live: stop / T1 / T2 on every price, Action Line + 20-day + max hold at 2:55 PM CT
+  const tdLine = (tr, extraDays)=>{ const a=tr.action; const d=L.current.daily[tr.sym]; if(!a || tr.tdSetup!=='bounce' || !d || !d.done) return null;
+    const off=d.done.filter(x=>x.t>a.t1).length + extraDays; return a.p1 + a.slope*off - tr.side*0.3*(tr.atr||0); };
+  const manageTD = async (tr, s, t)=>{
+    if(tr.date===t.date && t.min<tr.entryMin) return; const sd=tr.side;
+    if(sd>0? s.px<=tr.stop : s.px>=tr.stop){ await execEvent(tr,{type: tr.partialAt?'breakeven':'stop', px:s.px, frac: tr.partialAt?0.5:1, min:t.min}, false); return; }
+    if(!tr.partialAt && (sd>0? s.px>=tr.t1 : s.px<=tr.t1)){ await execEvent(tr,{type:'t1', px:s.px, frac:0.5, min:t.min}, false); return; }
+    if(tr.partialAt && (sd>0? s.px>=tr.t2 : s.px<=tr.t2)){ await execEvent(tr,{type:'t2', px:s.px, frac:0.5, min:t.min}, false); return; }
+    { const ee=earnOf(tr.sym,t.date); if(ee && t.min>=895 && t.date===ee.lastDay){ await execEvent(tr,{type:'earnings', px:s.px, frac: tr.partialAt?0.5:1, min:t.min}, false); return; } }
+    if(t.min>=895 && tr.lastEodCheck!==t.date){ let d=L.current.daily[tr.sym]; if(!d || d.date!==t.date){ try{ d=await loadDaily(tr.sym); }catch(e){ return; } }
+      if(!d.done || d.done.length<19) return; const sma=(d.done.slice(-19).reduce((a,b)=>a+b.c,0)+s.px)/20; const held=d.done.filter(x=>E.ct(x.t+12*3600e3).date>=tr.date).length+1; const tl=tdLine(tr,1);
+      tr.lastEodCheck=t.date; put('v3trades',tr.id,{lastEodCheck:t.date, swingDays:held},true); const f=tr.partialAt?0.5:1;
+      if(tl!=null && (sd>0? s.px<tl : s.px>tl)){ await execEvent(tr,{type:'line', px:s.px, frac:f, min:t.min}, false); return; }
+      if(tr.tdSetup!=='bounce' && tr.date!==t.date && (sd>0? s.px<sma : s.px>sma)){ await execEvent(tr,{type:'sma20', px:s.px, frac:f, min:t.min}, false); return; }
+      if(held>=30){ await execEvent(tr,{type:'tdtime', px:s.px, frac:f, min:t.min}, false); } }
+  };
+  const doMarks = useCallback(async ()=>{
+    for(const tr of tradesRef.current.filter(x=>x.status==='open' && x.instr==='option')){
+      try{ const q=await optQuote(tr.sym, tr.contract.ticker); if(q && q.mid>0){ tr.mark=q.mid; tr.markBid=q.bid; tr.markAt=Date.now(); } }catch(e){}
+    }
+  },[optQuote]);
+
+  const detectFor = useCallback((sym, liveTick)=>{
+    const Lc=L.current, t=now(); const d=Lc.daily[sym], b=Lc.b1[sym]; if(!d||!b) return;
+    let bars=b.bars; const s=Lc.snap[sym];
+    for(const k of ['m1','m5','m15']){
+      const mine=tradesRef.current.filter(x=>x.tab===k && x.sym===sym && x.date===t.date);
+      const st={n:mine.length, lastBar: mine.length? mine[mine.length-1].bar : null};
+      let use=bars;
+      if(k==='m1' && s && bars.length){ const last=bars[bars.length-1]; if(t.min>last.min) use=[...bars, {t:Date.now(), min:t.min, o:s.px,h:s.px,l:s.px,c:s.px,v:0}]; else use=[...bars.slice(0,-1), {...last, c:s.px, h:Math.max(last.h,s.px), l:Math.min(last.l,s.px)}]; }
+      else if(liveTick) continue;
+      const r=E.STRATS[k].detect(use, d.ctx, st); Lc.sigs[k][sym]={...r, at:Date.now()};
+      if(r.sig && phase()==='open'){
+        const freshOk = k==='m1' || (r.sig.min>=t.min-4);
+        if(freshOk) tryOpen(k, sym, r.sig, s? s.px : null);
+      }
+    }
+  },[tryOpen]);
+
+  const doBars = useCallback(async ()=>{
+    const Lc=L.current, t=now(); const list=Lc.inPlay; if(!list.length) return;
+    // open-trade tickers first, then round-robin through in-play
+    const openSyms=[...new Set(tradesRef.current.filter(x=>x.status==='open' && INTRA(x.tab) && x.date===t.date).map(x=>x.sym))];
+    const batch=[]; for(const s of openSyms) if(!batch.includes(s) && (Date.now()-((Lc.b1[s]||{}).at||0))>15000) batch.push(s);
+    let guard=0; while(batch.length<1 && guard++<list.length){ const s=list[Lc.q % list.length]; Lc.q=(Lc.q+1)%1e6; if(!batch.includes(s)) batch.push(s); }
+    await Promise.all(batch.slice(0,2).map(async sym=>{
+      try{
+        if(!Lc.daily[sym] || Lc.daily[sym].date!==t.date) await loadDaily(sym);
+        const bars=await loadBars(sym, t.date); Lc.b1[sym]={bars, at:Date.now()};
+        for(const tr of tradesRef.current.filter(x=>x.status==='open' && x.sym===sym && INTRA(x.tab) && x.date===t.date)) await syncTrade(tr, bars);
+        detectFor(sym, false);
+      }catch(e){}
+    }));
+  },[loadDaily, loadBars, syncTrade, detectFor]);
+
+  // catch up trades left open on earlier days (board was closed)
+  const catchUpOld = useCallback(async ()=>{
+    const t=now(); if(L.current.busy.catch) return; L.current.busy.catch=true;
+    try{
+      for(const tr of tradesRef.current.filter(x=>x.status==='open' && INTRA(x.tab) && x.date<t.date)){
+        try{ const bars=await loadBars(tr.sym, tr.date); if(bars.length) await syncTrade(tr, bars); }catch(e){}
+      }
+      for(const tr of tradesRef.current.filter(x=>x.status==='open' && x.tab==='sw')){
+        try{ const d=await loadDaily(tr.sym); const ind=E.swingInd(d.done); let held=0;
+          for(let i=0;i<d.done.length;i++){ const dt=E.ct(d.done[i].t+12*3600e3).date; if(dt<tr.date) continue; held++;
+            if(tr.lastEodCheck && dt<=tr.lastEodCheck) continue;   // already handled live that day
+            const ex=E.swingDay(tr, d.done[i], ind[i].sma20, held);
+            if(ex){ await execEvent(tr,{type: ex.reason==='stop'?'swstop':(ex.reason.startsWith('20-day max')?'maxhold':'sma'), px:ex.px, frac:1, min:E.CLOSE}, true); break; } }
+          if(tr.status==='open') put('v3trades',tr.id,{swingDays:held+1},true);
+        }catch(e){}
+      }
+      for(const tr of tradesRef.current.filter(x=>x.status==='open' && x.tab==='td')){
+        try{ const d=await loadDaily(tr.sym); const pos={side:tr.side, stop:tr.stop, t1:tr.t1, t2:tr.t2, entry:tr.entryUnder, partial:!!tr.partialAt, setup:tr.tdSetup}; let held=0;
+          for(let i=0;i<d.done.length;i++){ const bar=d.done[i]; const dt=E.ct(bar.t+12*3600e3).date; if(dt<tr.date) continue; held++;
+            if(tr.lastEodCheck && dt<=tr.lastEodCheck) continue;
+            let tl=null; if(tr.action && tr.tdSetup==='bounce'){ const off=d.done.slice(0,i+1).filter(x=>x.t>tr.action.t1).length; tl=tr.action.p1+tr.action.slope*off - tr.side*0.3*(tr.atr||0); }
+            const evs=TD.manageDay(pos, bar, TD.smaAt(d.done,i,20), tl, held, dt>tr.date);
+            for(const ev of evs) await execEvent(tr,{type:ev.type, px:ev.px, frac:ev.frac, min:E.CLOSE}, true);
+            if(evs.some(e=>e.final)) break; }
+          if(tr.status==='open') put('v3trades',tr.id,{swingDays:held+1},true);
+        }catch(e){} }
+    } finally { L.current.busy.catch=false; }
+  },[loadBars, loadDaily, syncTrade, execEvent, put]);
+
+  /* ---------- swing scan ---------- */
+  const runScan = useCallback(async (force)=>{
+    const Lc=L.current; if(Lc.scanRun) return; const t=now(); const ph=phase();
+    const after = ph==='closed' && t.min>=E.CLOSE;     // after the close: today's bar is complete -> scan for the next session
+    let forDate=t.date; if(after || ph==='weekend'){ forDate=E.shiftDays(t.date,1); while(['Sat','Sun'].includes(E.ct(Date.parse(forDate+'T17:00:00Z')).wd)) forDate=E.shiftDays(forDate,1); }
+    const prev=scans[forDate]; if(!force && prev && prev.td && prev.scanned>=E.UNIVERSE.length*0.9) return;   // redo missing, old-format or incomplete scans
+    Lc.scanRun={done:0, total:E.UNIVERSE.length, forDate}; setTick(x=>x+1);
+    const series={}; const queue=[...E.UNIVERSE];
+    await Promise.all([0,1,2].map(async()=>{ while(queue.length){ const sym=queue.shift();
+      try{ const from=E.shiftDays(t.date,-800); let txt=null; for(let k=0;k<3 && txt==null;k++){ try{ txt=await api(`/v2/aggs/ticker/${sym}/range/1/day/${from}/${t.date}`, {adjusted:'true',sort:'asc',limit:5000}, 'bulk'); }catch(e){ if(k===2) throw e; await sleep(1500*(k+1)); } } const bars=E.toBars(E.parseCSV(txt));
+        series[sym]=bars.filter(b=>E.ct(b.t+12*3600e3).date < forDate); }catch(e){}
+      Lc.scanRun.done++; if(Lc.scanRun.done%5===0) setTick(x=>x+1); } }));
+    const spy=series.SPY||[]; const ok=E.spyOkMap(spy); const cands=[];
+    for(const sym in series){ const d=series[sym]; if(d.length<80) continue; const ind=E.swingInd(d); const i=d.length-1; const date=E.ct(d[i].t+12*3600e3).date;
+      const sig=E.swingSignal(d, ind, i, sym, !!ok[date]); if(sig) cands.push({sym, setup:sig.setup, rvol:sig.rvol? +sig.rvol.toFixed(2):null, close:sig.close, sma20:+sig.sma20.toFixed(2), atr:+sig.atr.toFixed(3), low5:sig.low5, sigDate:date}); }
+    cands.sort((a,b)=> a.setup===b.setup ? (b.rvol||0)-(a.rvol||0) : (a.setup==='breakout'?-1:1));
+    const spyDate = spy.length? E.ct(spy[spy.length-1].t+12*3600e3).date : null;
+    const td=[], tdNoRoom=[];
+    for(const sym in series){ const d=series[sym]; if(d.length<120) continue; try{ const P=TD.prep(d); const i=d.length-1; const g=TD.signal(P,i); if(!g) continue;
+      const pt=(ln)=> ln? {t1:d[ln.ia].t, p1:+ln.pa.toFixed(4), slope:+ln.slope.toFixed(6), touches:ln.touches} : null;
+      if(g.rejected){ tdNoRoom.push({sym, side:g.side, setup:g.setup, why:g.rejected}); continue; }
+      td.push({sym, side:g.side, setup:g.setup, entry:+g.entry.toFixed(4), stop:+g.stop.toFixed(4), risk:+g.risk.toFixed(4), t1:+g.t1.toFixed(4), t2:+g.t2.toFixed(4), next:g.next, atr:+g.atr.toFixed(4), trend:g.trend, action:pt(g.action), safety:pt(g.safety), sigDate:E.ct(d[i].t+12*3600e3).date}); }catch(e){} }
+    td.sort((a,b)=> (a.setup===b.setup?0:(a.setup==='bounce'?-1:1)) || ((b.action?b.action.touches:0)-(a.action?a.action.touches:0)));
+    await put('v3scan', forDate, {forDate, at:Date.now(), cands, td, tdNoRoom:tdNoRoom.slice(0,25), scanned:Object.keys(series).length, spyOk: spyDate? !!ok[spyDate] : null});
+    Lc.scanRun=null; setTick(x=>x+1);
+  },[api, put, scans]);
+
+  const swingEntries = useCallback(async ()=>{
+    const t=now(); if(phase()!=='open' || t.min<E.OPEN+1) return; const sc=scans[t.date]; if(!sc) return;
+    if(t.min>600){ return; }  // after 10:00 the open-gap fill is stale: wait for tomorrow's list
+    const tried=(L.current.swTried=L.current.swTried||{}); const day=(tried[t.date]=tried[t.date]||new Set());
+    for(const cnd of sc.cands||[]){
+      const open=tradesRef.current.filter(x=>x.tab==='sw'&&x.status==='open').length; if(open>=cfgRef.current.maxOpenSwing) break;
+      if(day.has(cnd.sym)) continue; const s=L.current.snap[cnd.sym]; if(!s) continue; day.add(cnd.sym);
+      if(earnBlock(cnd.sym,t.date)){ logSignal('sw',cnd.sym,{setup:cnd.setup, min:t.min, side:1},false,'Earnings '+earnTxt(earnBlock(cnd.sym,t.date))+': no new swing positions within '+EARN_DAYS+' days of a report'); continue; }
+      const id=`${t.date}-sw-${cnd.sym}-1`; if(tradesRef.current.some(x=>x.id===id)) continue;
+      const stop=E.swingStop(s.px, {low5:cnd.low5, atr:cnd.atr});
+      await tryOpen('sw', cnd.sym, {side:1, entry:s.px, stop, t1:s.px+2*(s.px-stop), t2:s.px+4*(s.px-stop), setup:cnd.setup, min:t.min, sma20:cnd.sma20, rvol:cnd.rvol}, s.px);
+    }
+  },[scans, tryOpen]);
+
+  const tdEntries = useCallback(async ()=>{
+    const t=now(); if(phase()!=='open' || t.min<E.OPEN+15 || t.min>870) return; const sc=scans[t.date]; if(!sc || !(sc.td||[]).length) return;
+    const notes=(L.current.tdNotes=L.current.tdNotes||{});
+    for(const cnd of sc.td.slice(0,10)){
+      const open=tradesRef.current.filter(x=>x.tab==='td'&&x.status==='open'); if(open.length>=(cfgRef.current.maxOpenTD||5)) break;
+      if(open.some(x=>x.sym===cnd.sym) || tradesRef.current.some(x=>x.id===`${t.date}-td-${cnd.sym}-1`)) continue;
+      const s=L.current.snap[cnd.sym]; if(!s) continue;
+      { const eb=earnBlock(cnd.sym,t.date); if(eb){ notes[cnd.sym]={note:'Skipped: earnings '+earnTxt(eb), at:Date.now()}; continue; } }
+      if(cnd.side>0? s.px<=cnd.stop : s.px>=cnd.stop){ notes[cnd.sym]={note:'Broke the stop level before confirming: setup cancelled for today', at:Date.now()}; continue; }
+      if(Math.abs(s.px-cnd.entry)>cnd.atr){ notes[cnd.sym]={note:'Price ran more than 1 ATR from the setup: not chasing', at:Date.now()}; continue; }
+      try{
+        const b60=E.toBars(E.parseCSV(await api(`/v2/aggs/ticker/${cnd.sym}/range/1/hour/${E.shiftDays(t.date,-12)}/${t.date}`, {adjusted:'true',sort:'asc',limit:5000}))).filter(b=>{ const m=E.ct(b.t).min; return m>=480 && m<E.CLOSE; });
+        const b15=E.rth(E.toBars(E.parseCSV(await api(`/v2/aggs/ticker/${cnd.sym}/range/15/minute/${E.shiftDays(t.date,-4)}/${t.date}`, {adjusted:'true',sort:'asc',limit:5000}))));
+        const done15 = b15.filter(b=> !(E.ct(b.t).date===t.date && b.min+15>t.min));
+        const cf=TD.confirm(b60, done15, cnd.side); notes[cnd.sym]={note:cf.note, at:Date.now(), ok:cf.ok};
+        if(cf.ok){ const px=s.px, sd=cnd.side, risk=cnd.risk;
+          await tryOpen('td', cnd.sym, {side:sd, entry:px, stop:px-sd*risk, t1:px+sd*2*risk, t2:cnd.t2+(px-cnd.entry), setup:'TD '+cnd.setup, tdSetup:cnd.setup, min:t.min, action:cnd.action, atr:cnd.atr, next:cnd.next, trend:cnd.trend}, px); }
+      }catch(e){}
+    }
+  },[scans, api, tryOpen]);
+
+  /* ---------- scheduler ---------- */
+  useEffect(()=>{ if(!mcp) return; let stop=false;
+    const run = async (name, fn)=>{ const B=L.current.busy; if(B[name]) return; B[name]=true; try{ await fn(); }catch(e){} finally{ B[name]=false; } };
+    const id=setInterval(()=>{ if(stop) return; const Lc=L.current, n=Date.now(), ph=phase();
+      const live = ph==='open'||ph==='pre';
+      if(window.__VIEWER){ if(n>=Lc.next.snap){ Lc.next.snap=n+(live?15000:300000); run('snap', doSnapshot); } setTick(x=>(x+1)%1e9); return; }  // cloud viewer: show prices, the always-on server copy trades
+      if(n>=Lc.next.snap){ Lc.next.snap=n+(live?15000:300000); run('snap', async()=>{ await doSnapshot(); await manageTick(); for(const s of Lc.inPlay) detectFor(s,true); }); }
+      if(live && n>=Lc.next.bars){ Lc.next.bars=n+6000; run('bars', doBars); }
+      if(ph==='open' && n>=Lc.next.marks){ Lc.next.marks=n+60000; run('marks', doMarks); }
+      if(n>=Lc.next.scan){ Lc.next.scan=n+10*60000; const t=now(); if(t.min>=360 || ph==='weekend') run('scan', ()=>runScan(false)); }
+      if(ph==='open') run('swe', swingEntries);
+      if(ph==='open' && n>=(Lc.next.td||0)){ Lc.next.td=n+180000; run('tde', tdEntries); }
+      // data health alarm
+      const H=Lc.health; const age=H.lastOk? (n-H.lastOk)/1000 : null;
+      if(live && (age==null? H.fails>=3 : age>90) && n-H.alertAt>15*60000){ H.alertAt=n; toast('DATA STOPPED · no fresh Massive data for '+(age==null?'several tries':Math.round(age)+'s')+' ('+(H.lastErr||'no reply')+')','stop'); if(soundRef.current) S_ALARM();
+        if(cfgRef.current.slackData) slack(`⚠️ Conviction Board v3: no fresh market data for ${age==null?'several attempts':Math.round(age)+' seconds'} (${H.lastErr||'no reply'}). Check that the Mac is awake and the Claude app is open.`); }
+      setTick(x=>(x+1)%1e9);
+    },1000);
+    const vis=()=>{ if(document.visibilityState==='visible'){ L.current.next.snap=0; L.current.next.bars=0; wake(); } };
+    document.addEventListener('visibilitychange',vis);
+    return ()=>{ stop=true; clearInterval(id); document.removeEventListener('visibilitychange',vis); };
+  },[mcp, doSnapshot, manageTick, doBars, doMarks, runScan, swingEntries, tdEntries, detectFor, catchUpOld, slack]);
+  useEffect(()=>{ if(matchMedia('(prefers-reduced-motion: reduce)').matches) return; let raf=0, el=null, ev=null;
+    const apply=()=>{ raf=0; if(!el||!ev) return; const r=el.getBoundingClientRect(); const x=(ev.clientX-r.left)/r.width-0.5, y=(ev.clientY-r.top)/r.height-0.5;
+      el.style.setProperty('--ry', (x*10).toFixed(2)+'deg'); el.style.setProperty('--rx', (-y*10).toFixed(2)+'deg'); };
+    const move=e=>{ const t=e.target.closest && e.target.closest('.acct'); if(el && t!==el){ el.style.removeProperty('--rx'); el.style.removeProperty('--ry'); } el=t; ev=e; if(el && !raf) raf=requestAnimationFrame(apply); };
+    const out=e=>{ if(el && !(e.relatedTarget && el.contains(e.relatedTarget))){ el.style.removeProperty('--rx'); el.style.removeProperty('--ry'); el=null; } };
+    document.addEventListener('pointermove',move,{passive:true}); document.addEventListener('pointerout',out,{passive:true});
+    return ()=>{ document.removeEventListener('pointermove',move); document.removeEventListener('pointerout',out); if(raf) cancelAnimationFrame(raf); };
+  },[]);
+  const wake = async ()=>{ try{ if(navigator.wakeLock && !L.current.wake) { L.current.wake=await navigator.wakeLock.request('screen'); L.current.wake.addEventListener('release',()=>{ L.current.wake=null; }); } }catch(e){} };
+  useEffect(()=>{ wake(); },[]);
+  useEffect(()=>{ if(window.__VIEWER) return; if(mcp && trades.length && !L.current.caught){ L.current.caught=true; setTimeout(()=>catchUpOld(), 3000); } },[mcp, trades, catchUpOld]);
+  // re-sync runtimes when trades docs arrive after a reload
+  useEffect(()=>{ const t=now(); for(const tr of trades) if(tr.status==='open' && INTRA(tr.tab) && tr.date===t.date){ const b=L.current.b1[tr.sym]; if(b && !(L.current.rt[tr.id]||{}).synced) syncTrade(tr, b.bars); } },[trades, syncTrade]);
+
+  /* ---------- derived ---------- */
+  const T=now(); const ph=phase(); const H=L.current.health; const age=H.lastOk? Math.round((Date.now()-H.lastOk)/1000) : null;
+  const healthState = !mcp ? 'bad' : (age==null ? (H.fails? 'bad':'mid') : (age<=35?'ok':(age<=90?'mid':'bad')));
+  const enrich = tr => tr.status==='open' ? {...tr, unreal:unrealOf(tr)} : tr;
+  const acct = {}; for(const k of TABS){ const list=trades.filter(x=>x.tab===k).map(enrich); acct[k]={list, st:E.stats(list), g:E.guard(list, T.date, cfg)}; }
+
+  return html`<div className="wrap">
+    <div className="toasts" aria-live="polite">${toasts.map(x=>html`<div key=${x.id} className=${'toast '+x.kind}>${x.text}</div>`)}</div>
+    <div className="top">
+      <div style=${{display:'grid',gap:'6px'}}>
+        <h1>Conviction Board v3</h1>
+        <div className="sub">Four $50,000 paper accounts, one per strategy. Internal paper trading only, no broker connected.</div>
+      </div>
+      <div className="row">
+        <span className="chip num">${new Intl.DateTimeFormat('en-US',{timeZone:'America/Chicago',weekday:'short',hour:'numeric',minute:'2-digit',second:'2-digit'}).format(new Date())} CT</span>
+        <span className=${'chip '+(ph==='open'?'ok':(ph==='pre'?'mid':''))}>${{open:'Market open',pre:'Premarket',closed:'Market closed',weekend:'Weekend'}[ph]}</span>
+        <span className="chip health" title=${H.lastErr? 'Last error: '+H.lastErr : ''}><span className=${'dot '+healthState}></span>${!mcp? 'No data link' : age==null? 'Connecting' : 'Data '+age+'s ago'}</span>
+        <button className=${'sm '+(sound?'primary':'')} onClick=${()=>{ const ok=audioOn(); setSound(s=>!s && ok); if(ok && !sound) S_GO(); }}>${sound?'Sound on':'Turn sound on'}</button>
+      </div>
+    </div>
+    ${capState==='none' || capState==='nomcp' ? html`<div className="banner">Live data needs this board open in the Claude desktop app on your Mac, where Massive and Jev are connected. Trades and backtests already saved still show here.</div>` : null}
+    ${mcp && healthState==='bad' && ph!=='weekend' && ph!=='closed' ? html`<div className="banner">No fresh market data${age!=null?' for '+age+' seconds':''}${H.lastErr?' ('+H.lastErr+')':''}. Check that the Mac is awake and the Claude window is not minimized. Open trades will catch up from 1-minute bars when data returns.</div>` : null}
+    <div className="accts">${TABS.map(k=>{ const a=acct[k]; const today=a.g.dayP;
+      return html`<button key=${k} className=${'acct'+(tab===k?' on':'')} onClick=${()=>setTab(k)}>
+        <div className="k"><span>${TABNAME[k]}</span><span>${a.st.open? a.st.open+' open':''}</span></div>
+        <div className=${'v '+cls(a.st.equity-E.ACCOUNT)}>${'$'+Math.round(a.st.equity).toLocaleString('en-US')}</div>
+        <div className="s">Today <span className=${cls(today)}>${money(today)}</span> · ${a.st.n} closed${a.st.win!=null?' · '+a.st.win.toFixed(0)+'% win':''}${a.g.halted?' · HALTED':''}</div>
+      </button>`; })}</div>
+    <div className="tabs" role="tablist">
+      ${[['scan','Scanner'],['m1','1-min'],['m5','5-min'],['m15','15-min'],['sw','Swing'],['td','Top-Down'],['chart','Charts'],['set','Settings']].map(([k,l])=>html`<button key=${k} role="tab" aria-selected=${tab===k} className=${tab===k?'on':''} onClick=${()=>setTab(k)}>${l}${acct[k]&&acct[k].st.open?html`<span className="ct">${acct[k].st.open}</span>`:null}</button>`)}
+    </div>
+    ${tab==='scan' ? html`<${Scanner} L=${L.current} pins=${pins} setPins=${setPins} ph=${ph}/>` : null}
+    ${E.STRATS[tab] ? html`<${StratTab} k=${tab} a=${acct[tab]} L=${L.current} cfg=${cfg} setCfg=${setCfg} signals=${signals.filter(s=>s.tab===tab)} bt=${bts[tab]} runBt=${(o)=>runBacktest(tab,o)} btState=${btState}/>` : null}
+    ${tab==='sw' ? html`<${SwingTab} a=${acct.sw} L=${L.current} scans=${scans} runScan=${()=>runScan(true)} bt=${bts.sw} runBt=${(o)=>runBacktest('sw',o)} btState=${btState} signals=${signals.filter(s=>s.tab==='sw')}/>` : null}
+    ${tab==='td' ? html`<${TDTab} a=${acct.td} L=${L.current} scans=${scans} runScan=${()=>runScan(true)} bt=${bts.td} runBt=${(o)=>runBacktest('td',o)} openChart=${(s)=>{ setChartSym(s); setTab('chart'); }}/>` : null}
+    ${tab==='chart' ? html`<${ChartsTab} sym=${chartSym} setSym=${setChartSym} mcp=${mcp} L=${L.current} scans=${scans} trades=${trades}/>` : null}
+    ${tab==='set' ? html`<${Settings} cfg=${cfg} setCfg=${setCfg} db=${db} trades=${trades} put=${put} slack=${slack} mcp=${mcp} health=${H}/>` : null}
+    <footer className="note">Fills at the option mid (shares at last trade). The bid/ask column shows the same trades bought at the ask and sold at the bid. Data: Massive via ${window.__CC?'your Conviction server (trades are recorded by the copy that runs on the server around the clock)':'the Claude app on your Mac'} · news score: Jev. Research and paper trading only, not financial advice.</footer>
+  </div>`;
+
+  /* ---------- backtests (inside App for access to api) ---------- */
+  function runBacktest(k, o){ return runBt(k,o); }
+}
+
+/* backtest runner shared state (outside render) */
+let btState = {running:null, msg:'', pct:0};
+let runBt = async ()=>{};
+
+/* ---------- Scanner ---------- */
+function Scanner({L, pins, setPins, ph}){
+  const [q,setQ]=useState('');
+  const all=Object.values(L.snap); const inPlay=new Set(L.inPlay);
+  const rows = all.filter(s=>!q || s.sym.includes(q.toUpperCase())).sort((a,b)=> (inPlay.has(b.sym)-inPlay.has(a.sym)) || ((b.score||0)-(a.score||0)) || ((b.rvol||0)-(a.rvol||0)));
+  const ctxSyms=['SPY','QQQ','IWM','GLD','SLV','USO']; const togglePin=s=>setPins(p=>p.includes(s)? p.filter(x=>x!==s) : [...p, s]);
+  const [add,setAdd]=useState('');
+  return html`<div style=${{display:'grid',gap:'14px'}}>
+    <div className="stats">${ctxSyms.map(s=>{ const x=L.snap[s]; return html`<div key=${s} className="stat"><div className="k">${s}${E.COMMOD.includes(s)?' · commodity':''}${CROWD.map[s]&&CROWD.map[s].longPct!=null?' · crowd '+CROWD.map[s].longPct+'% long':''}</div><div className=${'v '+cls(x&&x.chg)}>${x? f2(x.px)+'  '+pct(x.chg,2) : '–'}</div></div>`; })}</div>
+    <div className="panel">
+      <div className="row between"><h2>In play now · ${L.inPlay.length}</h2>
+        <div className="row"><input id="scan-filter" type="text" placeholder="Filter ticker" value=${q} onInput=${e=>setQ(e.target.value)} style=${{width:'130px'}}/>
+          <input id="scan-pin" type="text" placeholder="Pin ticker" value=${add} onInput=${e=>setAdd(e.target.value.toUpperCase())} style=${{width:'110px'}}/>
+          <button className="sm" onClick=${()=>{ const s=add.trim(); if(s && !pins.includes(s)) setPins([...pins,s]); setAdd(''); }}>Pin</button></div></div>
+      <p className="note">One Massive snapshot every 15 seconds covers ${E.UNIVERSE.length} liquid stocks, ETFs and commodity ETFs. In play = your pins plus the top movers that pass: price ≥ $10, yesterday's dollar volume ≥ $100M, and volume pace ≥ 1.2× yesterday or a move ≥ 2%. Pace compares today's volume so far with yesterday's at the same share of the session, so it runs high in the first hour. These ${L.inPlay.length} names get 1-minute bars (refreshed about every 2 minutes, open trades first) and run through all three intraday strategies.</p>
+      ${!all.length ? html`<div className="empty">${ph==='weekend'||ph==='closed' ? 'Market closed. The snapshot refreshes once a minute; movers fill in at the next session.' : 'Waiting for the first snapshot from Massive.'}</div>` :
+      html`<div className="tbl"><table><thead><tr><th className="l">Ticker</th><th>Price</th><th>Change</th><th>Gap</th><th>Vol pace</th><th>Volume</th><th>Prev $vol</th><th>Score</th><th className="l">Status</th><th></th></tr></thead>
+      <tbody>${rows.slice(0,60).map(s=>{ const pin=pins.includes(s.sym); const ip=inPlay.has(s.sym); const sg=['m1','m5','m15'].map(k=>L.sigs[k][s.sym]).find(x=>x&&x.sig);
+        return html`<tr key=${s.sym} className=${(pin?'pin ':'')+(sg?'go':'')}><td className="sym l">${s.sym}${E.COMMOD.includes(s.sym)?html` <span className="pill cm">CMDTY</span>`:null}${EBADGE(s.sym,7)}${CBADGE(s.sym)}</td>
+        <td>${f2(s.px)}</td><td className=${cls(s.chg)}>${pct(s.chg,2)}</td><td className=${cls(s.gap)}>${pct(s.gap,1)}</td><td className=${(s.rvol||0)>=1.5?'up':''}>${s.rvol? s.rvol.toFixed(2)+'×':'–'}</td>
+        <td>${s.vol? (s.vol/1e6).toFixed(1)+'M':'–'}</td><td>${s.dollarPrev? '$'+(s.dollarPrev/1e9).toFixed(2)+'B':'–'}</td><td>${s.score!=null? s.score.toFixed(1):'–'}</td>
+        <td className="l">${ip? html`<span className="pill open">IN PLAY</span>` : html`<span className="tag">watch</span>`}</td>
+        <td><button className="sm ghost" onClick=${()=>togglePin(s.sym)} aria-label=${(pin?'Unpin ':'Pin ')+s.sym}>${pin?'Unpin':'Pin'}</button></td></tr>`; })}</tbody></table></div>`}
+    </div></div>`;
+}
+
+/* ---------- strategy tab ---------- */
+function AcctStats({a}){ const st=a.st, g=a.g;
+  return html`<div style=${{display:'grid',gap:'8px'}}>
+    ${g.halted? html`<div className="banner">${g.halted}</div>` : g.half? html`<div className="banner amber">${g.streak} losses in a row: trades are half size until the next win.</div>` : null}
+    <div className="stats">
+      <${Stat} k="Balance" v=${'$'+Math.round(st.equity).toLocaleString('en-US')} c=${cls(st.equity-E.ACCOUNT)}/>
+      <${Stat} k="Today" v=${money(g.dayP)} c=${cls(g.dayP)}/>
+      <${Stat} k="Win rate" v=${st.win!=null? st.win.toFixed(1)+'% ('+st.wins+'/'+st.n+')' : '–'}/>
+      <${Stat} k="Profit factor" v=${st.pf==null?'–':(st.pf===Infinity?'∞':st.pf.toFixed(2))} c=${st.pf>=1.3?'up':(st.pf!=null&&st.pf<1?'dn':'')}/>
+      <${Stat} k="Avg win / loss" v=${(st.avgW!=null?money(st.avgW):'–')+' / '+(st.avgL!=null?money(st.avgL):'–')}/>
+      <${Stat} k="Max drawdown" v=${money(-st.maxDD,false)+' ('+st.maxDDPct.toFixed(1)+'%)'} c=${st.maxDD>0?'dn':''}/>
+    </div>
+    <div className="note">Realized ${money(st.realized)} at mid fills · ${money(st.spreadRealized)} if bought at the ask and sold at the bid · open P&L ${money(st.unreal)}</div>
+  </div>`;
+}
+function OpenTable({list, L}){
+  const open=list.filter(x=>x.status==='open'); if(!open.length) return html`<div className="empty">No open positions.</div>`;
+  return html`<div className="tbl"><table><thead><tr><th className="l">Ticker</th><th className="l">Side</th><th className="l">Position</th><th>Entry</th><th>Now</th><th>Stop</th><th>T1 / T2</th><th>Mark</th><th>P&L</th><th className="l">Jev</th></tr></thead>
+  <tbody>${open.map(t=>{ const s=L.snap[t.sym]; return html`<tr key=${t.id}><td className="sym l">${t.sym}</td>
+    <td className="l"><span className=${'pill '+(t.side>0?'call':'put')}>${t.instr==='option'?(t.side>0?'CALL':'PUT'):(t.side>0?'LONG':'SHORT')}</span></td>
+    <td className="l">${t.instr==='option'? html`${t.qty}× $${t.contract.strike} ${dshort(t.contract.expiry)}${t.partialQty?html` <span className="tag">(${t.partialQty} sold at T1)</span>`:null}` : html`${t.qty} sh${t.partialQty?html` <span className="tag">(${t.partialQty} sold)</span>`:null}`}<div className="tag">${t.setup} · ${tms(t.entryAt)}${(t.tab==='sw'||t.tab==='td')?' · day '+(t.swingDays||1):''}${(t.tab==='sw'||t.tab==='td')&&earnOf(t.sym,E.ct(Date.now()).date)&&earnOf(t.sym,E.ct(Date.now()).date).days<=EARN_DAYS?' · sells 2:55 PM '+dshort(earnOf(t.sym,E.ct(Date.now()).date).lastDay)+' before earnings':''}</div></td>
+    <td>${f2(t.entryUnder)}<div className="tag">fill ${f2(t.entryFill)}</div></td><td>${s?f2(s.px):'–'}</td><td>${f2(t.stop)}</td><td>${f2(t.t1)} / ${f2(t.t2)}</td>
+    <td>${t.instr==='option'? f2(t.mark) : (s?f2(s.px):'–')}</td><td className=${cls(t.unreal)}>${money(t.unreal)}</td>
+    <td className="l">${t.jev? html`<span className=${t.jev.pDir>=0.65?'up':'tag'}>${t.jev.pDir.toFixed(2)}</span>` : html`<span className="tag">–</span>`}</td></tr>`; })}</tbody></table></div>`;
+}
+function ClosedTable({list}){
+  const c=list.filter(x=>x.status==='closed').sort((a,b)=>(b.exitAt||0)-(a.exitAt||0)).slice(0,60);
+  if(!c.length) return html`<div className="empty">No closed trades yet. Every GO IN lands here with its entry, exit and P&L.</div>`;
+  return html`<div className="tbl"><table><thead><tr><th className="l">Date</th><th className="l">Ticker</th><th className="l">Setup</th><th>In → out</th><th>Fill in → out</th><th>Qty</th><th>P&L mid</th><th>P&L bid/ask</th><th>R</th><th>Weekly</th><th className="l">Exit</th><th className="l">Jev</th></tr></thead>
+  <tbody>${c.map(t=>html`<tr key=${t.id}><td className="l">${dshort(t.date)}</td><td className="sym l">${t.sym} <span className=${'pill '+(t.side>0?'call':'put')}>${t.instr==='option'?(t.side>0?'C':'P'):(t.side>0?'L':'S')}</span></td>
+    <td className="l">${t.setup}</td><td>${E.hm(t.entryMin)} → ${E.hm(t.exitMin)}</td><td>${f2(t.entryFill)} → ${f2(t.exitFill)}${t.partialQty?html`<div className="tag">half at ${f2(t.partialFill)}</div>`:null}</td><td>${t.qty}</td>
+    <td className=${cls(t.pnl)}>${money(t.pnl)}</td><td className=${cls(t.pnlSpread)}>${money(t.pnlSpread)}</td><td className=${cls(t.R)}>${t.R!=null?t.R.toFixed(2):'–'}</td>
+    <td className=${t.weekly&&t.weekly.pnl!=null?cls(t.weekly.pnl):''}>${t.weekly&&t.weekly.pnl!=null? money(t.weekly.pnl) : '–'}</td>
+    <td className="l">${t.exitReason}</td><td className="l">${t.jev? t.jev.pDir.toFixed(2):'–'}</td></tr>`)}</tbody></table></div>`;
+}
+function WeeklyCompare({list}){
+  const c=list.filter(x=>x.status==='closed' && x.weekly && x.weekly.pnl!=null); if(!c.length) return html`<div className="note">Weekly comparison: no finished trades with a weekly leg yet. Each options GO IN also paper-trades the nearest weekly (2+ days left) on the same signal; it does not count toward the account.</div>`;
+  const sum=f=>c.reduce((a,x)=>a+(f(x)||0),0); const wins=f=>c.filter(x=>f(x)>0).length;
+  return html`<div className="kv"><b>Same ${c.length} signals, ~3-week contract</b><span className="num">${money(sum(x=>x.pnl))} mid · ${money(sum(x=>x.pnlSpread))} bid/ask · ${(100*wins(x=>x.pnl)/c.length).toFixed(0)}% win</span>
+    <b>Same signals, weekly contract</b><span className="num">${money(sum(x=>x.weekly.pnl))} mid · ${money(sum(x=>x.weekly.pnlSpread))} bid/ask · ${(100*wins(x=>x.weekly.pnl)/c.length).toFixed(0)}% win</span></div>`;
+}
+function JevSplit({list}){
+  const c=list.filter(x=>x.status==='closed'); const w=c.filter(x=>x.jev && x.jev.pDir>=0.65), o=c.filter(x=>!(x.jev && x.jev.pDir>=0.65));
+  const s=a=>{ const n=a.length; if(!n) return '–'; const wins=a.filter(x=>x.pnl>0).length; return `${n} trades · ${(100*wins/n).toFixed(0)}% win · ${money(a.reduce((p,x)=>p+(x.pnl||0),0))}`; };
+  return html`<div className="kv"><b>Jev agrees (≥ 0.65)</b><span className="num">${s(w)}</span><b>Jev neutral, against, or no news</b><span className="num">${s(o)}</span></div>`;
+}
+function Signals({k, L, signals}){
+  const t=E.ct(Date.now()); const rows=Object.entries(L.sigs[k]||{}).filter(([s])=>L.inPlay.includes(s)).sort((a,b)=>(!!b[1].sig-!!a[1].sig));
+  const skipped=signals.filter(s=>s.date===t.date && !s.taken).sort((a,b)=>b.at-a.at).slice(0,8);
+  return html`<div style=${{display:'grid',gap:'8px'}}>
+    ${!rows.length? html`<div className="empty">Signals show here for in-play tickers once 1-minute bars load during market hours.</div>` :
+    html`<div className="tbl"><table><thead><tr><th className="l">Ticker</th><th className="l">State</th><th>Levels</th></tr></thead><tbody>
+    ${rows.slice(0,30).map(([s,r])=>{ const lv=r.levels||{}; const lvTxt = k==='m1'? (lv.trigUp? `↑${f2(lv.trigUp)} ↓${f2(lv.trigDn)} · flow ${pct((lv.flow||0)*100,0)}`:'') : (lv.vwap? `VWAP ${f2(lv.vwap)}`+(lv.ema20?` · 20e ${f2(lv.ema20)}`:'')+(lv.sma20?` · 20d ${f2(lv.sma20)}`:''):'');
+      return html`<tr key=${s} className=${r.sig?'go':''}><td className="sym l">${s}</td><td className="txt">${r.sig? html`<b className="up">GO ${r.sig.side>0?'CALLS':'PUTS'}</b> · ${r.sig.setup}` : r.note}</td><td>${lvTxt}</td></tr>`; })}</tbody></table></div>`}
+    ${skipped.length? html`<details><summary>Signals skipped today · ${skipped.length}</summary><div className="tbl"><table><tbody>${skipped.map(s=>html`<tr key=${s.id}><td className="sym l">${s.sym}</td><td>${E.hm(s.min)}</td><td className="txt">${s.reason}</td></tr>`)}</tbody></table></div></details>` : null}
+  </div>`;
+}
+function BacktestPanel({k, bt, runBt, swing}){
+  const [months,setMonths]=useState(swing?36:2), [syms,setSyms]=useState(swing? 'ALL' : BT_DEFAULT), [,force]=useState(0);
+  useEffect(()=>{ const id=setInterval(()=>force(x=>x+1),700); return ()=>clearInterval(id); },[]);
+  const running = btState.running===k || (btState.running==='intra' && !swing);
+  const s=bt && bt.summary;
+  return html`<div className="panel">
+    <div className="row between"><h2>Backtest</h2>${bt? html`<span className="note">Last run ${new Date(bt.at).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})} · ${bt.period}</span>`:null}</div>
+    <p className="note">${k==='td'? 'Daily bars from Massive with weekly and monthly built from them, same rules as the live tab: $50,000 account, $500 risk per trade, $10,000 max per position, 5 positions max. The backtest enters at the next open; live trading waits for the hourly and 15-minute confirmation instead, so live entries will differ somewhat.' : swing? 'Daily bars from Massive, same rules as the live tab: $50,000 account, 1% risk ($500) per trade, $10,000 max per position, 6 positions max, breakouts ranked first. Shares, filled at the next open.' :
+      'Same detector and exit code as the live tab, run on Massive 1-minute bars. Results are on the underlying in R (multiples of the stop distance) and in dollars at $500 risk per trade. Option fills are not simulated here; the live paper account uses real option quotes. Running one intraday tab runs all three on the same data.'}</p>
+    <div className="form">
+      <label for=${'bt-m-'+k}>Period<select id=${'bt-m-'+k} value=${months} onChange=${e=>setMonths(+e.target.value)}>${(swing?[[12,'1 year'],[24,'2 years'],[36,'3 years']]:[[1,'1 month'],[2,'2 months'],[3,'3 months'],[6,'6 months']]).map(([v,l])=>html`<option key=${v} value=${v}>${l}</option>`)}</select></label>
+      <label for=${'bt-s-'+k}>Tickers${swing?' (ALL = full scanner list)':''}<input id=${'bt-s-'+k} type="text" value=${syms} onInput=${e=>setSyms(e.target.value)}/></label>
+      <button className="primary" disabled=${!!btState.running} onClick=${()=>runBt({months, syms})}>${running?'Running…':'Run backtest'}</button>
+      <span className="note">Takes a few minutes: it runs behind the live board so it never uses up the request limit trading needs. Best run after the close.</span>
+    </div>
+    ${running? html`<div className="prog"><div style=${{width:Math.round(btState.pct*100)+'%'}}></div></div><div className="note">${btState.msg}</div>` : (btState.err && btState.errTab===k ? html`<div className="err">${btState.err}</div>` : null)}
+    ${s? html`<div className="stats">
+      <${Stat} k="Trades" v=${s.n}/><${Stat} k="Win rate" v=${s.win!=null?s.win.toFixed(1)+'%':'–'}/><${Stat} k="Avg R" v=${s.avgR!=null?s.avgR.toFixed(2):'–'} c=${cls(s.avgR)}/>
+      <${Stat} k="Profit factor" v=${s.pf!=null?s.pf.toFixed(2):'–'} c=${s.pf>=1.3?'up':(s.pf!=null&&s.pf<1?'dn':'')}/><${Stat} k="Net P&L" v=${money(s.pnl)} c=${cls(s.pnl)}/><${Stat} k="Max drawdown" v=${money(-s.maxDD,false)} c="dn"/></div>
+      ${bt.curve? html`<${Curve} pts=${bt.curve}/>`:null}
+      ${bt.rows? html`<details open><summary>${swing?'By setup and year':'By ticker'}</summary><div className="tbl"><table><thead><tr><th className="l">${swing?'Group':'Ticker'}</th><th>Trades</th><th>Win</th><th>Avg R</th><th>PF</th><th>P&L</th></tr></thead><tbody>
+        ${bt.rows.map(r=>html`<tr key=${r.k}><td className="l">${r.k}</td><td>${r.n}</td><td>${r.win!=null?r.win.toFixed(0)+'%':'–'}</td><td className=${cls(r.avgR)}>${r.avgR!=null?r.avgR.toFixed(2):'–'}</td><td>${r.pf!=null?r.pf.toFixed(2):'–'}</td><td className=${cls(r.pnl)}>${money(r.pnl)}</td></tr>`)}</tbody></table></div></details>`:null}` :
+      html`<div className="empty">No backtest saved for this tab yet. Run one before trusting the live paper results.</div>`}
+    ${k==='sw'? html`<details><summary>Reference: SQL check run Oct 27 (40 tickers, 3 years, no position cap)</summary><p className="note" style=${{marginTop:'6px'}}>Pullbacks 428 trades · 35.7% win · avg +0.25R · PF 1.75. Breakouts 105 trades · 48.6% win · avg +0.52R · PF 2.43. Profit factor stayed above 1 every year 2023–2026, but 2026 was the weakest year (pullbacks PF 1.36, breakouts 1.45). Up to 27 signals overlapped at once, so the live tab's 6-position cap and ranking matter.</p></details>`:null}
+  </div>`;
+}
+function StratTab({k, a, L, cfg, setCfg, signals, bt, runBt}){
+  const S=E.STRATS[k]; const jevOn=!!(cfg.jevTabs||{})[k];
+  return html`<div style=${{display:'grid',gap:'14px'}}>
+    <div className="panel"><div className="row between"><h2>${S.name}</h2><label className="row note" for=${'jev-'+k}><input id=${'jev-'+k} type="checkbox" checked=${jevOn} onChange=${e=>setCfg(c=>({...c, jevTabs:{...(c.jevTabs||{}), [k]:e.target.checked}}))}/> Require Jev ≥ ${cfg.jevMin} to enter</label></div>
+      <p className="sub">${S.blurb}</p><${AcctStats} a=${a}/><${Curve} pts=${a.st.curve}/></div>
+    <div className="stack">
+      <div className="panel"><h2>Open positions</h2><${OpenTable} list=${a.list} L=${L}/></div>
+      <div className="panel"><h2>Live signals</h2><${Signals} k=${k} L=${L} signals=${signals}/></div>
+    </div>
+    <div className="panel"><div className="row between"><h2>Closed trades</h2><${JevSplit} list=${a.list}/></div><${WeeklyCompare} list=${a.list}/><${ClosedTable} list=${a.list}/></div>
+    <${BacktestPanel} k=${k} bt=${bt} runBt=${runBt}/>
+    <div className="panel"><h2>Rules</h2><ul className="rules">${S.rules.map(r=>html`<li key=${r}>${r}</li>`)}<li>Account: 1% risk ($500) per trade sized off the stop · options capped at $2,500 premium · max 3 open · ATM contract ~21 days out (14–35)</li><li>Weekly test leg: the nearest weekly with at least 2 days left, same entry, exits and sizing rules, tracked in the Weekly column only. Skipped when the stock reports earnings before that weekly expires.</li><li>Breakers: −$1,000 day halts the tab · −$2,500 week pauses it · 3 losses in a row = half size</li></ul></div>
+  </div>`;
+}
+function SwingTab({a, L, scans, runScan, bt, runBt, signals}){
+  const t=E.ct(Date.now()); const keys=Object.keys(scans).sort(); const latest=keys.length? scans[keys[keys.length-1]] : null; const sr=L.scanRun;
+  return html`<div style=${{display:'grid',gap:'14px'}}>
+    <div className="panel"><h2>Swing Stocks</h2><p className="sub">Shares held 1–4 weeks in established uptrends: price above a rising 50-day average with the 20-day above the 50-day, within 10% of the 60-day high, and SPY in an uptrend (commodity ETFs and energy exempt). Two entries: a pullback to the 20-day that closes above the prior day's high on at least average volume, or a 20-day breakout on 1.5× volume.</p><${AcctStats} a=${a}/><${Curve} pts=${a.st.curve}/></div>
+    <div className="split">
+      <div className="panel"><div className="row between"><h2>${latest? (latest.forDate===t.date?"Today's entries":'Watchlist for '+dshort(latest.forDate)) : 'Scan'}</h2><button className="sm" disabled=${!!sr} onClick=${runScan}>${sr?'Scanning '+sr.done+'/'+sr.total:'Rescan'}</button></div>
+        ${latest? html`<p className="note">Scanned ${latest.scanned} of ${E.UNIVERSE.length} tickers${latest.scanned<E.UNIVERSE.length*0.9?' (incomplete: retrying every 10 minutes)':''} ${new Date(latest.at).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})} · SPY trend ${latest.spyOk?'up (stocks allowed)':'down (commodities only)'} · entries fill at the first price after 8:31 CT, until 10:00.</p>
+        ${!(latest.cands||[]).length? html`<div className="empty">No setups passed the rules.</div>` : html`<div className="tbl"><table><thead><tr><th className="l">Ticker</th><th className="l">Setup</th><th>Close</th><th>20-day</th><th>Vol ×</th><th>Stop est.</th></tr></thead><tbody>
+        ${latest.cands.map((c,i)=>{ const stop=E.swingStop(c.close,{low5:c.low5, atr:c.atr}); return html`<tr key=${c.sym} className=${i<6&&!earnBlock(c.sym,t.date)?'go':''}><td className="sym l">${c.sym}${EBADGE(c.sym)}${CBADGE(c.sym)}</td><td className="l">${c.setup}</td><td>${f2(c.close)}</td><td>${f2(c.sma20)}</td><td>${c.rvol!=null?c.rvol.toFixed(2):'–'}</td><td>${f2(stop)}</td></tr>`; })}</tbody></table></div>`}` :
+        html`<div className="empty">${sr? 'Scanning the list now.' : 'The first scan runs automatically after 6:00 AM CT, or press Rescan.'}</div>`}</div>
+      <div className="panel"><h2>Open positions</h2><${OpenTable} list=${a.list} L=${L}/></div>
+    </div>
+    <div className="panel"><h2>Closed trades</h2><${ClosedTable} list=${a.list}/></div>
+    <${BacktestPanel} k="sw" bt=${bt} runBt=${runBt} swing=${true}/>
+    <div className="panel"><h2>Rules</h2><ul className="rules"><li>Stop: under the 5-day low (minus 0.1 ATR), kept between 1 and 2.5 ATR from entry</li><li>Exit: stop hit intraday · a close below the 20-day average (checked at 2:55 PM CT) · or 20 trading days</li><li>Size: 1% risk ($500) per trade, $10,000 max per position, 6 positions max</li><li>Earnings: no new position within 14 days of a report; an open position is sold at 2:55 PM CT on the last session before the report (the report day itself for after-close reports, the day before for before-open or unconfirmed times)</li></ul>${EarnNote()}</div>
+  </div>`;
+}
+function EarnNote(){ const t=E.ct(Date.now()).date;
+  return html`<p className=${'note'+(earnStale(t)?' err':'')} style=${{marginTop:'6px'}}>${EARN.asOf? `Earnings dates: ${EARN.source||'TradingView'}, updated ${dshort(EARN.asOf)} for ${Object.keys(EARN.map).length} stocks (ETFs have none).${earnStale(t)?' Over a week old: ask Claude to refresh them.':''}` : 'Earnings dates not loaded yet: ask Claude to load them from TradingView. Until then the earnings rules cannot run.'}${CROWD.asOf? ` Crowd lean (the "% L" badge): share of Liquid traders long, updated ${dshort(CROWD.asOf)}. Green = crowd mostly short, red = crowd mostly long. For information only: it does not change entries or exits.` : ''}</p>`; }
+const TBADGE = t => html`<span className=${'pill '+(t==='up'?'win':(t==='down'?'loss':''))}>${t==='up'?'UP':(t==='down'?'DOWN':'RANGE')}</span>`;
+function TDTab({a, L, scans, runScan, bt, runBt, openChart}){
+  const t=E.ct(Date.now()); const keys=Object.keys(scans).sort(); const latest=keys.length? scans[keys[keys.length-1]] : null; const sr=L.scanRun; const notes=L.tdNotes||{};
+  const list=(latest&&latest.td)||[];
+  return html`<div style=${{display:'grid',gap:'14px'}}>
+    <div className="panel"><h2>Top-Down Trendline</h2>
+      <p className="sub">Fewer plays, more study behind each one. Monthly and weekly charts set the direction, the daily chart finds the trade at the Action Line, and the hourly and 15-minute charts time the entry. Built on Tori Trades' Action Line / Safety Line approach.</p>
+      <${AcctStats} a=${a}/><${Curve} pts=${a.st.curve}/></div>
+    <div className="panel"><div className="row between"><h2>${latest? (latest.forDate===t.date?"Today's top-down setups":'Setups for '+dshort(latest.forDate)) : 'Top-down setups'}</h2><button className="sm" disabled=${!!sr} onClick=${runScan}>${sr?'Scanning '+sr.done+'/'+sr.total:'Rescan'}</button></div>
+      ${!latest? html`<div className="empty">${sr?'Scanning now.':'The scan runs after 6:00 AM CT with the swing scan, or press Rescan.'}</div>` : !list.length? html`<div className="empty">No ticker lines up on every timeframe today. That is normal: this strategy waits.</div>` :
+      html`<div className="tbl"><table><thead><tr><th className="l">Ticker</th><th className="l">Setup</th><th className="l">Mo · Wk · Day</th><th>Line touches</th><th>Entry zone</th><th>Stop</th><th>T1 (2R)</th><th>T2 / next level</th><th className="l">Hourly + 15-min</th><th></th></tr></thead><tbody>
+      ${list.map(c=>{ const nt=notes[c.sym]; const tr=a.list.find(x=>x.sym===c.sym && x.status==='open');
+        return html`<tr key=${c.sym} className=${tr?'go':''}><td className="sym l">${c.sym} <span className=${'pill '+(c.side>0?'call':'put')}>${c.side>0?'LONG':'SHORT'}</span>${EBADGE(c.sym)}${CBADGE(c.sym)}</td>
+        <td className="l">${c.setup==='bounce'?'Action Line bounce':'Pullback line break'}</td>
+        <td className="l">${TBADGE(c.trend.M)} ${TBADGE(c.trend.W)} ${TBADGE(c.trend.D)}</td><td>${c.action? c.action.touches : '–'}</td>
+        <td>${f2(c.entry-c.atr)} – ${f2(c.entry+c.atr)}</td><td>${f2(c.stop)}</td><td>${f2(c.t1)}</td><td>${f2(c.t2)}${c.next?html`<div className="tag">next level ${f2(c.next)}</div>`:html`<div className="tag">open sky</div>`}</td>
+        <td className="txt">${tr? html`<b className="up">In the trade</b>` : earnBlock(c.sym,t.date)? html`<span className="dn">Skipped: earnings ${earnTxt(earnBlock(c.sym,t.date))}</span>` : (nt? nt.note : (latest.forDate===t.date? 'Checked once the market opens' : 'Waiting for the session'))}</td>
+        <td><button className="sm" onClick=${()=>openChart(c.sym)}>Chart</button></td></tr>`; })}</tbody></table></div>`}
+      ${latest && (latest.tdNoRoom||[]).length? html`<details><summary>Lined up but skipped: not enough room to the next level · ${latest.tdNoRoom.length}</summary><div className="tbl"><table><tbody>${latest.tdNoRoom.map(x=>html`<tr key=${x.sym}><td className="sym l">${x.sym}</td><td className="l">${x.side>0?'long':'short'} · ${x.setup}</td><td className="txt">${x.why}</td><td><button className="sm ghost" onClick=${()=>openChart(x.sym)}>Chart</button></td></tr>`)}</tbody></table></div></details>`:null}
+    </div>
+    <div className="panel"><h2>Open positions</h2><${OpenTable} list=${a.list} L=${L}/></div>
+    <div className="panel"><h2>Closed trades</h2><${ClosedTable} list=${a.list}/></div>
+    <${BacktestPanel} k="td" bt=${bt} runBt=${runBt} swing=${true}/>
+    <div className="panel"><h2>How it reads the charts</h2><ol className="rules">
+      <li><b>Monthly and weekly set the direction.</b> Up means higher highs and higher lows (or price above a rising 10-month / 20-week average). Longs need the weekly up and the monthly not down; shorts are the mirror image.</li>
+      <li><b>Daily finds the trade.</b> The Action Line is the trendline drawn through the daily swing lows (uptrend) or highs (downtrend). Bounce: the 3rd+ touch of a line that is at least a week old, holding with the close in the top half of the bar. Pullback break: price pulls back into the Action Line or a support level, then closes back through the short pullback line.</li>
+      <li><b>Room to run.</b> Support and resistance come from swing highs and lows on the monthly, weekly and daily charts, grouped where they cluster. The next level must be at least 2× the stop distance away, or the setup is skipped.</li>
+      <li><b>Hourly and 15-minute time the entry.</b> Hourly above its 20 EMA with a higher low, then a 15-minute close above the last two 15-minute highs on normal volume, within 1 ATR of the setup price.</li>
+      <li><b>Risk and exits.</b> Stop just beyond the Action Line (0.3 ATR buffer, 0.5–2.5 ATR from entry) or under the pullback low. Half off at 2R with the stop moved to breakeven, the rest at the next level (or 4R). A daily close back through the Action Line, the 20-day for breaks, or 30 trading days ends the trade. Shares, $500 risk, $10,000 max, 5 positions.</li><li><b>Earnings.</b> No new setup within 14 days of a report, and an open position is sold at 2:55 PM CT on the last session before the report.</li></ol>${EarnNote()}</div>
+  </div>`;
+}
+
+/* ---------- Charts tab (TradingView's open-source Lightweight Charts) ---------- */
+const TFS = [['M','Monthly'],['W','Weekly'],['D','Daily'],['H','1 hour'],['15','15 min']];
+function tfPath(sym, tf){ const t=E.ct(Date.now()).date;
+  return {M:[`/v2/aggs/ticker/${sym}/range/1/month/${E.shiftDays(t,-3650)}/${t}`], W:[`/v2/aggs/ticker/${sym}/range/1/week/${E.shiftDays(t,-1460)}/${t}`], D:[`/v2/aggs/ticker/${sym}/range/1/day/${E.shiftDays(t,-420)}/${t}`],
+    H:[`/v2/aggs/ticker/${sym}/range/1/hour/${E.shiftDays(t,-30)}/${t}`], '15':[`/v2/aggs/ticker/${sym}/range/15/minute/${E.shiftDays(t,-7)}/${t}`]}[tf][0]; }
+function ChartsTab({sym, setSym, mcp, L, scans, trades}){
+  const [tf,setTf]=useState(()=>lsGet('v3-tf','D')); const [data,setData]=useState({}); const [err,setErr]=useState(''); const [input,setInput]=useState(sym); const [busy,setBusy]=useState(false);
+  const box=useRef(null), chartRef=useRef(null);
+  useEffect(()=>lsSet('v3-tf',tf),[tf]); useEffect(()=>setInput(sym),[sym]);
+  const load = useCallback(async ()=>{
+    if(!mcp){ setErr('Charts need the Massive connection in the Claude desktop app on your Mac.'); return; } setBusy(true); setErr('');
+    const out={};
+    for(const [k] of TFS){ try{ const txt=await massive(mcp, tfPath(sym,k), {adjusted:'true',sort:'asc',limit:5000}, 'live');
+      let bars=E.toBars(E.parseCSV(txt)); if(k==='H') bars=bars.filter(b=>{ const m=E.ct(b.t).min; return m>=480 && m<E.CLOSE; }); if(k==='15') bars=E.rth(bars); out[k]=bars; }catch(e){ out[k]=[]; } }
+    setData(out); setBusy(false); if(!Object.values(out).some(x=>x.length)) setErr('No bars came back from Massive for '+sym+'.');
+  },[sym, mcp]);
+  useEffect(()=>{ load(); },[load]);
+  useEffect(()=>{ if(tf!=='H' && tf!=='15') return; const id=setInterval(()=>{ if(document.visibilityState==='visible') load(); }, 60000); return ()=>clearInterval(id); },[tf, load]);
+  const keys=Object.keys(scans).sort(); const latest=keys.length? scans[keys[keys.length-1]] : null; const cand=latest && (latest.td||[]).find(x=>x.sym===sym);
+  const pos=trades.find(x=>x.sym===sym && x.status==='open' && (x.tab==='td'||x.tab==='sw'));
+  const reads = useMemo(()=>{ const o={}; for(const [k] of TFS){ const b=data[k]; o[k]= b && b.length>=20 ? TD.chartRead(b) : null; } return o; },[data]);
+  // draw
+  useEffect(()=>{
+    const LW=window.LightweightCharts; const bars=data[tf]; if(!box.current) return;
+    if(!LW){ setErr('The chart library did not load. Check the connection and reopen the board.'); return; }
+    if(chartRef.current){ chartRef.current.remove(); chartRef.current=null; }
+    if(!bars || !bars.length) return;
+    const css=getComputedStyle(document.documentElement); const tok=n=>css.getPropertyValue(n).trim();
+    const intra = tf==='H'||tf==='15';
+    const T = b => { if(!intra) return E.ct(b.t+12*3600e3).date; const p=E.ct(b.t); const [y,m,d]=p.date.split('-').map(Number); return Date.UTC(y,m-1,d,Math.floor(p.min/60),p.min%60)/1000; };
+    const ch=LW.createChart(box.current,{height:480, width:box.current.clientWidth, layout:{background:{type:'solid',color:tok('--panel')}, textColor:tok('--muted'), fontFamily:'IBM Plex Mono, ui-monospace, monospace'},
+      grid:{vertLines:{color:tok('--line')}, horzLines:{color:tok('--line')}}, rightPriceScale:{borderColor:tok('--line-2')}, timeScale:{borderColor:tok('--line-2'), timeVisible:intra, secondsVisible:false}, crosshair:{mode:0}});
+    chartRef.current=ch;
+    const cs=ch.addCandlestickSeries({upColor:tok('--go'), downColor:tok('--warn'), borderVisible:false, wickUpColor:tok('--go'), wickDownColor:tok('--warn')});
+    const seen=new Set(); const rows=[]; for(const b of bars){ const tt=T(b); const key=String(tt); if(seen.has(key)) continue; seen.add(key); rows.push({time:tt, open:b.o, high:b.h, low:b.l, close:b.c, value:b.v}); }
+    cs.setData(rows.map(r=>({time:r.time, open:r.open, high:r.high, low:r.low, close:r.close})));
+    const vs=ch.addHistogramSeries({priceFormat:{type:'volume'}, priceScaleId:'vol', color:tok('--line-2'), lastValueVisible:false, priceLineVisible:false}); vs.priceScale().applyOptions({scaleMargins:{top:0.82,bottom:0}}); vs.setData(rows.map(r=>({time:r.time, value:r.value})));
+    const rd=reads[tf]; const n=bars.length;
+    const seg=(ln, color, w)=>{ if(!ln) return; const s2=ch.addLineSeries({color, lineWidth:w||2, priceLineVisible:false, lastValueVisible:false, crosshairMarkerVisible:false});
+      const a=Math.max(0,ln.ia); const pts=[{time:rows[Math.min(a,rows.length-1)].time, value:ln.pa},{time:rows[rows.length-1].time, value:ln.at(n-1)}]; if(pts[0].time!==pts[1].time) s2.setData(pts); };
+    if(rd){ seg(rd.sup, tok('--go')); seg(rd.res, tok('--warn'));
+      const px=bars[n-1].c; const near=rd.levels.slice().sort((x,y)=>Math.abs(x.price-px)-Math.abs(y.price-px)).slice(0,6);
+      for(const lv of near) cs.createPriceLine({price:lv.price, color: lv.price>px? tok('--warn') : tok('--go'), lineWidth:1, lineStyle:2, axisLabelVisible:true, title:(lv.price>px?'R':'S')+' · '+lv.touches+' swings'}); }
+    // the board's own Action Line from the daily scan, on the daily chart
+    const act = (pos && pos.action) || (cand && cand.action);
+    if(act && tf==='D'){ const i1=bars.findIndex(b=>b.t>=act.t1); if(i1>=0){ const s3=ch.addLineSeries({color:tok('--accent'), lineWidth:3, priceLineVisible:false, lastValueVisible:true, title:'Action Line'});
+      const off=n-1-i1; s3.setData([{time:rows[Math.min(i1,rows.length-1)].time, value:act.p1},{time:rows[rows.length-1].time, value:act.p1+act.slope*off}]); } }
+    const plan = pos ? {entry:pos.entryUnder, stop:pos.stop, t1:pos.t1, t2:pos.t2} : cand ? {entry:cand.entry, stop:cand.stop, t1:cand.t1, t2:cand.t2} : null;
+    if(plan){ cs.createPriceLine({price:plan.entry, color:tok('--fg'), lineWidth:1, lineStyle:0, axisLabelVisible:true, title:pos?'Entry':'Setup'});
+      cs.createPriceLine({price:plan.stop, color:tok('--warn'), lineWidth:2, lineStyle:0, axisLabelVisible:true, title:'Stop'});
+      cs.createPriceLine({price:plan.t1, color:tok('--go'), lineWidth:1, lineStyle:0, axisLabelVisible:true, title:'T1'});
+      cs.createPriceLine({price:plan.t2, color:tok('--go'), lineWidth:2, lineStyle:0, axisLabelVisible:true, title:'T2'}); }
+    const vis = {M:60, W:104, D:160, H:140, '15':160}[tf]; if(rows.length>vis) ch.timeScale().setVisibleLogicalRange({from:rows.length-vis, to:rows.length+3}); else ch.timeScale().fitContent();
+    const ro=new ResizeObserver(()=>{ if(box.current && chartRef.current) chartRef.current.applyOptions({width:box.current.clientWidth}); }); ro.observe(box.current);
+    return ()=>{ ro.disconnect(); };
+  },[data, tf, reads, cand, pos]);
+  useEffect(()=>()=>{ if(chartRef.current){ chartRef.current.remove(); chartRef.current=null; } },[]);
+  const quick=[...new Set([...(latest&&latest.td||[]).map(x=>x.sym), ...trades.filter(x=>x.status==='open').map(x=>x.sym), ...PIN_DEFAULT])].slice(0,14);
+  const px = data.D && data.D.length ? data.D[data.D.length-1].c : null;
+  return html`<div style=${{display:'grid',gap:'14px'}}>
+    <div className="panel">
+      <div className="row between"><div className="row"><h2>${sym}</h2>${px?html`<span className="num">${f2(px)}</span>`:null}${cand? html`<span className=${'pill '+(cand.side>0?'call':'put')}>TOP-DOWN ${cand.side>0?'LONG':'SHORT'} SETUP</span>`:null}${pos?html`<span className="pill open">OPEN IN ${TABNAME[pos.tab].toUpperCase()}</span>`:null}</div>
+        <form className="row" onSubmit=${e=>{ e.preventDefault(); const v=input.trim().toUpperCase(); if(v) setSym(v); }}><input id="chart-sym" type="text" value=${input} onInput=${e=>setInput(e.target.value.toUpperCase())} style=${{width:'110px'}} aria-label="Ticker"/><button className="sm primary" type="submit">Load</button><button className="sm" type="button" onClick=${load} disabled=${busy}>${busy?'Loading…':'Refresh'}</button></form></div>
+      <div className="row">${quick.map(q=>html`<button key=${q} className=${'sm '+(q===sym?'primary':'ghost')} onClick=${()=>setSym(q)}>${q}</button>`)}</div>
+      <div className="row" role="tablist" aria-label="Timeframe">${TFS.map(([k,l])=>html`<button key=${k} role="tab" aria-selected=${tf===k} className=${'sm '+(tf===k?'primary':'')} onClick=${()=>setTf(k)}>${l}</button>`)}</div>
+      ${err? html`<div className="err">${err}</div>`:null}
+      <div ref=${box} style=${{width:'100%', minHeight:'480px'}} aria-label=${sym+' '+tf+' candlestick chart with trendlines and levels'}></div>
+      <div className="note">Green line: support trendline through the swing lows. Red line: resistance trendline through the swing highs. Dashed lines: the nearest support (S) and resistance (R) levels, with how many swing highs and lows formed there. Blue line: the board's Action Line from the daily scan. Lines redraw from each timeframe's own swings, so switching timeframes adjusts them automatically. 1-hour and 15-minute refresh every minute.</div>
+    </div>
+    <div className="panel"><h2>Top-down read</h2><div className="tbl"><table><thead><tr><th className="l">Timeframe</th><th className="l">Trend</th><th>Support line</th><th>Resistance line</th><th>Nearest support</th><th>Nearest resistance</th></tr></thead><tbody>
+      ${TFS.map(([k,l])=>{ const r=reads[k], b=data[k]; if(!r||!b) return html`<tr key=${k}><td className="l">${l}</td><td className="l" colSpan="5"><span className="tag">${busy?'loading':'not enough bars'}</span></td></tr>`;
+        const p=b[b.length-1].c, n=b.length; const sup=r.levels.filter(x=>x.price<p).sort((x,y)=>y.price-x.price)[0], res=r.levels.filter(x=>x.price>p).sort((x,y)=>x.price-y.price)[0];
+        return html`<tr key=${k}><td className="l"><button className="sm ghost" onClick=${()=>setTf(k)}>${l}</button></td><td className="l">${TBADGE(r.trend)}</td>
+          <td>${r.sup? f2(r.sup.at(n-1))+' · '+r.sup.touches+' touches' : '–'}</td><td>${r.res? f2(r.res.at(n-1))+' · '+r.res.touches+' touches' : '–'}</td>
+          <td className="up">${sup? f2(sup.price) : '–'}</td><td className="dn">${res? f2(res.price) : '–'}</td></tr>`; })}</tbody></table></div>
+      <p className="note">Read it top to bottom: the monthly and weekly rows should agree before the daily setup matters, and the hourly and 15-minute rows tell you whether the entry is ready. Charts by TradingView Lightweight Charts, data from Massive.</p></div>
+  </div>`;
+}
+
+function DataLog(){ const [,f]=useState(0); useEffect(()=>{ const id=setInterval(()=>f(x=>x+1),2000); return ()=>clearInterval(id); },[]);
+  return html`<div className="panel"><h2>Data log</h2><p className="note">Massive requests this session: ${STATS.ok} ok · ${STATS.retried} retried · ${STATS.fail} failed after retries. Current pace ${GOV.rate} requests a minute · slowed down ${GOV.limited} times by the Claude app's limit${Date.now()<GOV.pausedUntil?' · paused '+Math.ceil((GOV.pausedUntil-Date.now())/1000)+'s':''}. The limit is shared by every board open on this Mac, so a second board slows this one. Trade management goes first, then live data, then scans, then backtests.</p>
+    ${!ERRLOG.length? html`<div className="empty">No data errors so far.</div>` : html`<div className="tbl"><table><thead><tr><th className="l">Time</th><th className="l">Error</th><th className="l">Request</th><th>Try</th><th className="l">Message</th></tr></thead><tbody>
+      ${ERRLOG.slice(0,15).map((x,i)=>html`<tr key=${i}><td className="l">${tms(x.at)}</td><td className="l">${x.code}</td><td className="l">${x.path}</td><td>${x.attempt}</td><td className="txt">${x.msg}</td></tr>`)}</tbody></table></div>`}</div>`; }
+function Settings({cfg, setCfg, db, trades, put, slack, mcp, health}){
+  const [confirm,setConfirm]=useState(''), [msg,setMsg]=useState('');
+  const reset = async ()=>{ if(!db) return; let n=0; for(const t of trades){ try{ await db.collection('v3trades').doc(t.id).delete(); n++; }catch(e){} } setMsg('Removed '+n+' paper trades. All four accounts are back to $50,000.'); setConfirm(''); };
+  return html`<div style=${{display:'grid',gap:'14px'}}>
+    <div className="panel"><h2>Account rules</h2>
+      <div className="kv"><b>Starting balance</b><span className="num">$50,000 per strategy tab</span><b>Risk per trade</b><span className="num">${(cfg.riskPct*100).toFixed(1)}% = ${money(E.ACCOUNT*cfg.riskPct,false)}</span>
+      <b>Options</b><span className="num">max $${cfg.maxPremium.toLocaleString()} premium per trade · fills at mid</span><b>Open positions</b><span className="num">3 per intraday tab · 6 swing</span>
+      <b>Daily / weekly stop</b><span className="num">−$${cfg.dailyStop} / −$${cfg.weeklyStop}</span><b>Losing streak</b><span className="num">half size after ${cfg.streakHalf} losses in a row</span></div>
+      <div className="form"><label for="risk">Risk per trade<select id="risk" value=${cfg.riskPct} onChange=${e=>setCfg(c=>({...c, riskPct:+e.target.value}))}><option value="0.005">0.5% ($250)</option><option value="0.01">1% ($500)</option><option value="0.02">2% ($1,000)</option></select></label></div></div>
+    <div className="panel"><h2>Alerts</h2>
+      <label className="row" for="sl-data"><input id="sl-data" type="checkbox" checked=${cfg.slackData} onChange=${e=>setCfg(c=>({...c, slackData:e.target.checked}))}/> Slack DM me when the board stops getting market data (at most every 15 minutes)</label>
+      <label className="row" for="sl-go"><input id="sl-go" type="checkbox" checked=${cfg.slackGo} onChange=${e=>setCfg(c=>({...c, slackGo:e.target.checked}))}/> Slack DM me on every paper GO IN</label>
+      <div className="form"><label for="sl-to">Slack channel or user ID<input id="sl-to" type="text" value=${cfg.slackTo} onInput=${e=>setCfg(c=>({...c, slackTo:e.target.value.trim()}))}/></label><button className="sm" disabled=${!mcp} onClick=${async()=>{ await slack('Conviction Board v3 test alert: alerts are working.'); setMsg('Test alert sent to Slack.'); }}>Send test</button></div>
+      <p className="note">Data health: ${health.calls} calls this session · last error ${health.lastErr||'none'}. The light at the top turns yellow after 25 seconds without fresh data and red after 60. The page asks the Mac to keep the screen awake while it is open.</p></div>
+    <${DataLog}/>
+    <div className="panel"><h2>Reset paper accounts</h2><p className="note">Deletes every v3 paper trade so all four accounts restart at $50,000. Saved backtests and scans stay. v2's paper log is not touched.</p>
+      <div className="form"><label for="reset">Type RESET to confirm<input id="reset" type="text" value=${confirm} onInput=${e=>setConfirm(e.target.value)}/></label><button disabled=${confirm!=='RESET'} onClick=${reset}>Reset accounts</button></div></div>
+    ${msg? html`<div className="banner info">${msg}</div>`:null}
+  </div>`;
+}
+
+/* ---------- mount + backtest runner wiring ---------- */
+function Root(){
+  const [mcp,setMcp]=useState(null), [db,setDb]=useState(null);
+  useEffect(()=>{ const c=window.claude; if(!c||!c.use) return; c.use('mcp').then(setMcp).catch(()=>{}); c.use('db').then(setDb).catch(()=>{}); },[]);
+  useEffect(()=>{
+    const api=(path,params)=>massive(mcp, path, params, 'bt');
+    const all=async(path,params)=>{ let rows=[], p={path,params}, g=0; while(p && g++<80){ const txt=await api(p.path,p.params); rows=rows.concat(E.parseCSV(txt)); p=E.nextPage(txt); } return rows; };
+    const cache={};
+    runBt = async (k, o)=>{
+      if(!mcp){ btState={running:null, err:'Backtests need the Massive connection in the Claude desktop app on your Mac.', errTab:k}; return; }
+      const t=E.ct(Date.now()); const swing=k==='sw';
+      let syms = (o.syms||'').toUpperCase().split(/[\s,]+/).filter(Boolean); if((swing||k==='td') && (syms.length===0 || syms[0]==='ALL')) syms=[...E.UNIVERSE];
+      btState={running: swing?'sw':(k==='td'?'td':'intra'), msg:'Loading data…', pct:0}; const failed={}; const noteFail=(s,e)=>{ failed[s]=(e&&e.code)||'error'; };
+      try{
+        if(k==='td'){
+          const startD=E.shiftDays(t.date,-Math.round(o.months*30.5)); const from=E.shiftDays(startD,-800); const series={}; let done=0; const q=[...syms];
+          await Promise.all([0,1].map(async()=>{ while(q.length){ const s=q.shift(); try{ series[s]=E.toBars(E.parseCSV(await api(`/v2/aggs/ticker/${s}/range/1/day/${from}/${t.date}`,{adjusted:'true',sort:'asc',limit:5000}))); }catch(e){ noteFail(s,e); } done++; btState.pct=done/syms.length*0.85; btState.msg=`Daily bars ${done}/${syms.length}`+(Object.keys(failed).length?` · ${Object.keys(failed).length} failed`:''); } }));
+          if(Object.keys(series).length<Math.max(1,syms.length*0.5)) throw {code:'too_few', message:`Only ${Object.keys(series).length} of ${syms.length} tickers loaded`};
+          btState.msg='Running the top-down rules…'; await new Promise(r=>setTimeout(r,30));
+          const res=TD.backtest(series, {...E.DEFAULTS, maxOpenTD:5}, startD); const trs=res.closed; const sum=E.summarize(trs);
+          const rows=[]; const grp=(fn)=>{ const g={}; trs.forEach(x=>{ const kk=fn(x); (g[kk]=g[kk]||[]).push(x); }); Object.keys(g).sort().forEach(kk=>{ const s2=E.summarize(g[kk]); rows.push({k:kk, n:s2.n, win:s2.win, avgR:s2.avgR, pf:s2.pf, pnl:s2.pnl}); }); };
+          grp(x=>x.setup+(x.side>0?' · long':' · short')); grp(x=>x.date.slice(0,4));
+          let eq=E.ACCOUNT; const curve=[{eq}]; trs.slice().sort((a,b)=>a.xdate<b.xdate?-1:1).forEach(x=>{ eq+=x.pnl; curve.push({eq}); });
+          await db.collection('v3bt').doc('td').set({at:Date.now(), period:`${dyear(startD)} – ${dyear(t.date)} · ${Object.keys(series).length} tickers`, summary:sum, rows, avgDays: trs.length? trs.reduce((a,x)=>a+x.days,0)/trs.length : null, curve:curve.filter((_,i)=>i%Math.max(1,Math.ceil(curve.length/300))===0||i===curve.length-1)});
+        } else if(swing){
+          const from=E.shiftDays(t.date, -Math.round(o.months*30.5)-260); const series={}; let done=0; const q=[...new Set([...syms,'SPY'])];
+          await Promise.all([0,1].map(async()=>{ while(q.length){ const s=q.shift(); try{ series[s]=E.toBars(E.parseCSV(await api(`/v2/aggs/ticker/${s}/range/1/day/${from}/${t.date}`,{adjusted:'true',sort:'asc',limit:5000}))); }catch(e){ noteFail(s,e); } done++; btState.pct=done/(syms.length+1)*0.9; btState.msg=`Daily bars ${done}/${syms.length+1}`+(Object.keys(failed).length?` · ${Object.keys(failed).length} failed`:''); } }));
+          if(!series.SPY || Object.keys(series).length<Math.max(2,syms.length*0.5)) throw {code:'too_few', message:`Only ${Object.keys(series).length} of ${syms.length+1} tickers loaded${series.SPY?'':' (SPY missing)'}`};
+          const spy=series.SPY; if(!syms.includes('SPY')) delete series.SPY;
+          const res=E.backtestSwing(series, spy, E.DEFAULTS); const startD=E.shiftDays(t.date,-Math.round(o.months*30.5));
+          const trs=res.closed.filter(x=>x.date>=startD); const sum=E.summarize(trs);
+          const rows=[]; const grp=(key,fn)=>{ const g={}; trs.forEach(x=>{ const kk=fn(x); (g[kk]=g[kk]||[]).push(x); }); Object.keys(g).sort().forEach(kk=>{ const s=E.summarize(g[kk]); rows.push({k:kk, n:s.n, win:s.win, avgR:s.avgR, pf:s.pf, pnl:s.pnl}); }); };
+          grp('setup', x=>x.setup); grp('year', x=>x.date.slice(0,4)+' '+x.setup);
+          let eq=E.ACCOUNT; const curve=[{eq}]; trs.slice().sort((a,b)=>a.xdate<b.xdate?-1:1).forEach(x=>{ eq+=x.pnl; curve.push({eq}); });
+          await db.collection('v3bt').doc('sw').set({at:Date.now(), period:`${dyear(startD)} – ${dyear(t.date)} · ${Object.keys(series).length} tickers`, summary:sum, rows, curve:curve.filter((_,i)=>i%Math.max(1,Math.ceil(curve.length/300))===0||i===curve.length-1)});
+        } else {
+          const start=E.shiftDays(t.date, -Math.round(o.months*30.5)); const per={m1:[],m5:[],m15:[]}; let done=0;
+          for(const s of syms){
+            btState.msg=`${s}: loading 1-minute bars (${done+1}/${syms.length})`;
+            const key=s+'|'+start; let rec=cache[key];
+            try{
+            if(!rec){ const daily=E.toBars(E.parseCSV(await api(`/v2/aggs/ticker/${s}/range/1/day/${E.shiftDays(start,-60)}/${t.date}`,{adjusted:'true',sort:'asc',limit:5000})));
+              const mins=E.toBars(await all(`/v2/aggs/ticker/${s}/range/1/minute/${start}/${t.date}`,{adjusted:'true',sort:'asc',limit:50000})); rec={daily, days:E.byDay(mins)}; cache[key]=rec; }
+            const dctx=(date)=>{ const d=rec.daily.filter(b=>E.ct(b.t+12*3600e3).date<date); return d.length>=20? E.dailyCtx(d) : null; };
+            for(const k2 of ['m1','m5','m15']) per[k2].push(...E.backtestIntraday(k2, s, rec.days, dctx, E.DEFAULTS));
+            }catch(e){ noteFail(s,e); }
+            done++; btState.pct=done/syms.length; await new Promise(r=>setTimeout(r,0));
+          }
+          if(Object.keys(failed).length>=syms.length) throw {code:'all_failed', message:'No ticker loaded'};
+          for(const k2 of ['m1','m5','m15']){ const trs=per[k2]; const sum=E.summarize(trs); const rows=[]; const g={}; trs.forEach(x=>(g[x.sym]=g[x.sym]||[]).push(x));
+            Object.keys(g).forEach(s=>{ const q=E.summarize(g[s]); rows.push({k:s, n:q.n, win:q.win, avgR:q.avgR, pf:q.pf, pnl:q.pnl}); }); rows.sort((a,b)=>b.pnl-a.pnl);
+            let eq=E.ACCOUNT; const curve=[{eq}]; trs.slice().sort((a,b)=>a.date===b.date? a.entryMin-b.entryMin : (a.date<b.date?-1:1)).forEach(x=>{ eq+=x.pnl; curve.push({eq}); });
+            await db.collection('v3bt').doc(k2).set({at:Date.now(), period:`${dyear(start)} – ${dyear(t.date)} · ${syms.length-Object.keys(failed).length} of ${syms.length} tickers`, summary:sum, rows, curve:curve.filter((_,i)=>i%Math.max(1,Math.ceil(curve.length/300))===0||i===curve.length-1)}); }
+        }
+        btState={running:null, msg:'', pct:1};
+      }catch(e){ const last=ERRLOG[0]; btState={running:null, err:'Backtest stopped: '+((e&&e.message)||(e&&e.code)||'error')+(last?` · last data error: ${last.code}${last.msg?' – '+last.msg:''}`:'')+'. Settings → Data log shows the details.', errTab:k}; }
+    };
+  },[mcp, db]);
+  return html`<${App}/>`;
+}
+ReactDOM.createRoot(document.getElementById('root')).render(html`<${Root}/>`);
+})();
+
+</script>

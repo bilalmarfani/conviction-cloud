@@ -1,0 +1,1774 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Conviction Engine v2</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: status strip; 11 identical play cards (NVDA, TSLA first and verified); paper log; rules + backtest at the bottom. Dark single-theme terminal. */
+:root{
+  --bg:#0a0e13; --panel:#11171f; --panel-2:#161e28; --line:#223040; --line-2:#2c3b4d;
+  --fg:#d9e2ec; --muted:#8193a6; --dim:#5a6a7e;
+  --accent:#5fb4ff;
+  --go:#2bea7c; --go-ink:#03140a; --go-soft:rgba(43,234,124,.13);
+  --warn:#ff5a5f; --warn-soft:rgba(255,90,95,.13);
+  --amber:#ffc24b; --amber-soft:rgba(255,194,75,.12);
+  --pink:#ff6fb5; --yellow:#ffe14d;
+  --f-display:"Barlow Condensed","Arial Narrow",system-ui,sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  color-scheme:dark;
+}
+html,body{background:var(--bg);color:var(--fg)}
+body{font-family:var(--f-body);font-size:14px;line-height:1.45}
+.wrap{max-width:1280px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:18px 40px;display:grid;gap:16px}
+.num{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+h1{font-family:var(--f-display);font-weight:700;font-size:30px;letter-spacing:.02em;margin:0;line-height:1;text-wrap:balance}
+h2{font-family:var(--f-display);font-weight:700;font-size:19px;letter-spacing:.05em;margin:0;text-transform:uppercase}
+.sub{color:var(--muted);font-size:13px;margin-top:4px}
+.top{display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px;align-items:flex-end}
+.chips{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.chip{font-family:var(--f-display);font-weight:600;letter-spacing:.08em;text-transform:uppercase;font-size:12px;padding:3px 9px;border:1px solid var(--line-2);border-radius:4px;color:var(--muted);white-space:nowrap}
+.chip.live{color:var(--go);border-color:rgba(43,234,124,.5)}
+.chip.sim{color:var(--amber);border-color:rgba(255,194,75,.5)}
+.chip.win{color:var(--accent);border-color:rgba(95,180,255,.5)}
+button,select,input,textarea{font:inherit;color:var(--fg);background:var(--panel-2);border:1px solid var(--line-2);border-radius:6px;padding:6px 10px}
+button{cursor:pointer}
+button:hover:not(:disabled){border-color:var(--accent)}
+button:disabled{opacity:.45;cursor:default}
+button:focus-visible,select:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button.primary{background:var(--accent);color:#04121f;border-color:var(--accent);font-weight:600}
+button.ghost{background:transparent}
+.bar-controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 12px}
+.bar-controls .sep{width:1px;align-self:stretch;background:var(--line)}
+.bar-controls label{color:var(--muted);font-size:12px;font-family:var(--f-display);letter-spacing:.08em;text-transform:uppercase}
+.note{color:var(--muted);font-size:12px}
+.err{color:var(--warn);font-size:12px}
+
+.split{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:14px}
+@media (max-width:900px){.split{grid-template-columns:minmax(0,1fr)}}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px;display:grid;gap:10px;min-width:0}
+.rules{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+@media (max-width:520px){.rules{grid-template-columns:minmax(0,1fr)}}
+.rule{background:var(--panel-2);border:1px solid var(--line);border-radius:6px;padding:8px 10px;min-width:0}
+.rule .k{font-family:var(--f-display);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);display:flex;justify-content:space-between;gap:8px}
+.rule .k b{color:var(--accent);font-weight:700}
+.rule .v{font-size:13px;margin-top:2px}
+.base{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.stat{background:var(--panel-2);border:1px solid var(--line);border-radius:6px;padding:8px 10px;min-width:0}
+.stat .k{font-family:var(--f-display);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.stat .v{font-family:var(--f-mono);font-size:18px;font-weight:600;margin-top:2px}
+.stat .v.small{font-size:14px}
+.pnl-t th,.pnl-t td{text-align:left;vertical-align:top}
+.pnl-h{font-family:var(--f-display);font-size:13px;white-space:normal;min-width:120px}
+.pnl-v{font-family:var(--f-mono);font-size:18px;font-weight:600}
+
+.cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+@media (max-width:900px){.cards{grid-template-columns:minmax(0,1fr)}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px;display:grid;gap:12px;min-width:0}
+.card.go{border-color:var(--go);box-shadow:0 0 0 1px var(--go) inset}
+.card.stopped{border-color:rgba(255,90,95,.6)}
+.card.flash{animation:flash .5s ease-in-out 5}
+@keyframes flash{0%,100%{box-shadow:0 0 0 1px var(--go) inset}50%{box-shadow:0 0 0 1px var(--go) inset,0 0 0 9px rgba(43,234,124,.35)}}
+.row{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.sym{font-family:var(--f-display);font-weight:700;font-size:30px;letter-spacing:.03em;line-height:1}
+.side{font-family:var(--f-display);font-weight:600;font-size:13px;letter-spacing:.1em;margin-left:8px;color:var(--muted)}
+.side.calls{color:var(--go)} .side.puts{color:var(--warn)}
+.pill{font-family:var(--f-display);font-weight:700;letter-spacing:.1em;font-size:15px;padding:5px 12px;border-radius:5px;border:1px solid var(--line-2);color:var(--muted);background:var(--panel-2);white-space:nowrap}
+.pill.SCAN{color:var(--accent);border-color:rgba(95,180,255,.55)}
+.pill.GO{color:var(--go-ink);background:var(--go);border-color:var(--go)}
+.pill.STOP{color:var(--warn);border-color:var(--warn);background:var(--warn-soft)}
+.pill.FLAT{color:var(--amber);border-color:rgba(255,194,75,.6);background:var(--amber-soft)}
+.price{font-size:26px;font-weight:600}
+.up{color:var(--go)} .dn{color:var(--warn)}
+.kv{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+@media (max-width:480px){.kv{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.kv > div{background:var(--panel-2);border:1px solid var(--line);border-radius:6px;padding:7px 8px;min-width:0}
+.kv .k{font-family:var(--f-display);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.kv .v{font-size:14px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.scorehead{display:flex;justify-content:space-between;align-items:baseline}
+.scorehead .big{font-family:var(--f-mono);font-size:28px;font-weight:600;line-height:1}
+.lbl{font-family:var(--f-display);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-size:12px}
+.meter{position:relative;height:12px;background:var(--panel-2);border:1px solid var(--line);border-radius:4px;overflow:hidden}
+.meter .fill{position:absolute;inset:0 auto 0 0;transition:width .25s ease}
+.meter .tick{position:absolute;top:-1px;bottom:-1px;width:2px;background:var(--go)}
+.layers{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
+@media (max-width:560px){.layers{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.layer{border:1px solid var(--line);border-radius:6px;padding:6px 8px;background:var(--panel-2);min-width:0}
+.layer.on{border-color:rgba(43,234,124,.55);background:var(--go-soft)}
+.layer.req{border-style:dashed}
+.layer.req.on{border-style:solid}
+.layer .lt{display:flex;justify-content:space-between;font-family:var(--f-display);font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.layer .lt b{color:var(--dim)} .layer.on .lt b{color:var(--go)}
+.layer .lv{font-size:12px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.trade{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;background:var(--panel-2);border:1px solid var(--line);border-radius:6px;padding:8px 10px}
+@media (max-width:480px){.trade{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.trade .k{font-family:var(--f-display);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.trade .v{font-family:var(--f-mono);font-size:14px}
+.tbl{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:12px}
+th,td{padding:5px 8px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+th{font-family:var(--f-display);font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-size:11px}
+td:first-child,th:first-child{text-align:left}
+td{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+
+.routes{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+@media (max-width:900px){.routes{grid-template-columns:minmax(0,1fr)}}
+.route{background:var(--panel-2);border:1px solid var(--line);border-radius:8px;padding:12px;display:grid;gap:8px;min-width:0}
+.route.live{border-color:var(--go);box-shadow:0 0 0 1px var(--go) inset}
+.route .rs{font-family:var(--f-display);font-weight:700;font-size:22px;letter-spacing:.03em}
+.occ{display:grid;gap:4px}
+.size{display:grid;gap:2px;background:var(--bg);border:1px solid var(--line-2);border-radius:6px;padding:8px 10px}
+.size .big{font-size:20px;font-weight:600;color:var(--accent)}
+.size.warn{color:var(--amber);border-color:rgba(255,194,75,.5);font-size:13px}
+.riskin{display:flex;gap:8px;align-items:center}
+.riskin input{width:110px}
+.occ code{font-family:var(--f-mono);font-size:18px;font-weight:600;color:var(--fg);background:var(--bg);border:1px solid var(--line-2);border-radius:5px;padding:4px 8px;overflow-wrap:anywhere;user-select:all}
+.legend{display:flex;gap:12px;flex-wrap:wrap}
+.legend i{display:inline-block;width:10px;height:2px;margin-right:5px;vertical-align:middle}
+.refgrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+@media (max-width:900px){.refgrid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:520px){.refgrid{grid-template-columns:minmax(0,1fr)}}
+.ref{background:var(--panel-2);border:1px solid var(--line);border-radius:8px;padding:10px;display:grid;gap:7px;min-width:0}
+.ref.go{border-color:var(--go);box-shadow:0 0 0 1px var(--go) inset}
+.ref.flash{animation:flash .5s ease-in-out 5}
+.ref .rs{font-family:var(--f-display);font-weight:700;font-size:20px;letter-spacing:.03em}
+.ref .pill{font-size:12px;padding:3px 8px}
+.ref .meter{height:8px}
+.flags{display:flex;gap:5px;flex-wrap:wrap}
+.flag{font-family:var(--f-display);font-size:11px;letter-spacing:.08em;text-transform:uppercase;padding:1px 6px;border:1px solid var(--line-2);border-radius:3px;color:var(--dim)}
+.flag.on{color:var(--go);border-color:rgba(43,234,124,.5);background:var(--go-soft)}
+.toast.ref{background:var(--panel-2);color:var(--go);border:1px solid var(--go);box-shadow:none}
+.tabs{display:flex;gap:6px;flex-wrap:wrap}
+.tabs button.on{border-color:var(--accent);color:var(--accent)}
+.ctx{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+@media (max-width:640px){.ctx{grid-template-columns:minmax(0,1fr)}}
+.ctxrow{display:grid;grid-template-columns:64px repeat(4,minmax(0,1fr));gap:8px;align-items:center;background:var(--panel-2);border:1px solid var(--line);border-radius:6px;padding:8px 10px}
+.ctxrow .s{font-family:var(--f-display);font-weight:700;font-size:20px}
+.ctxrow .k{font-family:var(--f-display);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.ctxrow .v{font-family:var(--f-mono);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+.prog{height:8px;background:var(--panel-2);border:1px solid var(--line);border-radius:4px;overflow:hidden}
+.prog > div{height:100%;background:var(--accent)}
+.curve{width:100%;height:90px;display:block}
+.form{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;align-items:end}
+@media (max-width:760px){.form{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.form label{display:grid;gap:3px;font-size:11px;color:var(--muted);font-family:var(--f-display);letter-spacing:.08em;text-transform:uppercase}
+.form input,.form select{width:100%;min-width:0}
+.toasts{position:fixed;top:calc(12px + env(safe-area-inset-top,0px));right:max(12px,env(safe-area-inset-right,0px));display:grid;gap:8px;z-index:20;pointer-events:none}
+.toast{background:var(--go);color:var(--go-ink);font-family:var(--f-display);font-weight:700;letter-spacing:.06em;font-size:18px;padding:10px 16px;border-radius:6px;box-shadow:0 8px 30px rgba(43,234,124,.35)}
+.toast.stop{background:var(--warn);color:#1a0405}
+.toast.flat{background:var(--amber);color:#1a1203}
+footer{color:var(--dim);font-size:12px;line-height:1.6}
+@media (prefers-reduced-motion:reduce){.card.flash{animation:none}.meter .fill{transition:none}}
+.monline{font-size:12px;line-height:1.5;color:var(--fg);border:1px dashed var(--line-2);border-radius:8px;padding:6px 8px}
+.monline .dim{color:var(--muted)}
+.layers.mini{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+.layers.mini .layer{padding:6px 8px}
+.layers.mini .lv{font-size:11px}
+.stack{display:grid;grid-template-columns:minmax(0,1fr);gap:16px}
+.ahpx{display:inline-block;margin-left:10px;font-size:13px;color:#c9a7ff;border:1px solid rgba(201,167,255,.45);border-radius:4px;padding:1px 6px}
+.ahpx span{opacity:.85}
+.ladder{position:fixed;right:max(12px,env(safe-area-inset-right,0px));bottom:max(12px,env(safe-area-inset-bottom,0px));width:min(360px,calc(100vw - 24px));z-index:15;background:rgba(17,23,31,.97);border:1px solid var(--line-2);border-radius:10px;box-shadow:0 12px 40px rgba(0,0,0,.55);overflow:hidden}
+.ladder .lhead{width:100%;display:flex;justify-content:space-between;align-items:center;gap:8px;border:0;border-radius:0;background:var(--panel-2);font-family:var(--f-display);font-weight:700;letter-spacing:.08em;text-transform:uppercase;font-size:14px;padding:8px 12px}
+.ladder .lgo{color:var(--go)}
+.ladder .lbody{max-height:min(60vh,520px);overflow-y:auto;display:grid}
+.lrow{display:grid;grid-template-columns:20px 72px 16px 30px 74px minmax(0,1fr);align-items:center;gap:6px;text-align:left;border:0;border-bottom:1px solid var(--line);border-radius:0;background:transparent;padding:6px 10px;font-size:13px}
+.lrow:hover{background:var(--panel-2)}
+.lrow.g0{background:rgba(43,234,124,.10);box-shadow:inset 3px 0 0 var(--go)}
+.lrow.g1{box-shadow:inset 3px 0 0 var(--amber)}
+.lrow.g3{opacity:.7}
+.lrow.flash{animation:lflash .5s ease-in-out 6}
+@keyframes lflash{50%{background:rgba(43,234,124,.35)}}
+.lrank{color:var(--dim);font-size:11px}
+.lsym{font-family:var(--f-display);font-weight:700;font-size:16px;letter-spacing:.03em;white-space:nowrap}
+.lver{font-style:normal;color:var(--accent);font-size:11px;margin-left:3px}
+.lbt{display:inline-block;width:6px;height:6px;border-radius:50%;margin-left:5px;vertical-align:2px;background:var(--dim)}
+.lbt.good{background:var(--go)} .lbt.bad{background:var(--warn)}
+.lside{font-family:var(--f-display);font-weight:700}
+.lscore{text-align:right}
+.ldots{display:flex;gap:2px}
+.ldots i{font-style:normal;font-family:var(--f-mono);font-size:10px;width:16px;text-align:center;border:1px solid var(--line-2);border-radius:3px;color:var(--dim)}
+.ldots i.on{color:var(--go-ink);background:var(--go);border-color:var(--go)}
+.lstat{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:right}
+.lstat.live{color:var(--yellow);font-weight:600}
+.lfoot{padding:6px 10px 8px}
+.ladder.min{width:auto}
+@media (prefers-reduced-motion:reduce){.lrow.flash{animation:none}}
+.wrap{padding-bottom:120px}
+.mutebtn{background:transparent}
+.mutebtn.on{color:var(--amber);border-color:rgba(255,194,75,.6)}
+.pill.TECH{color:#1a1203;background:var(--amber);border-color:var(--amber)}
+.card.tech{border-color:var(--amber);box-shadow:0 0 0 1px var(--amber) inset}
+.techstamp{background:var(--amber-soft);border:1px solid var(--amber);color:var(--amber);border-radius:6px;padding:7px 10px;font-size:14px;font-weight:600}
+.techstamp.done{opacity:.6;font-weight:500}
+.toast.tech{background:var(--amber);color:#1a1203;box-shadow:0 8px 30px rgba(255,194,75,.35)}
+.chip.techchip{color:var(--amber);border-color:rgba(255,194,75,.6)}
+.lrow.g05{background:var(--amber-soft);box-shadow:inset 3px 0 0 var(--amber)}
+.lstat.tech{color:var(--amber);font-weight:600}
+.ladder .ltech{color:var(--amber)}
+.chip.clock{color:var(--fg)}
+.chip.clock.replay{color:var(--amber);border-color:rgba(255,194,75,.6)}
+td.amb{color:var(--amber)}
+.tracker{border:1px solid var(--line-2);border-radius:8px;padding:9px 10px;display:grid;gap:7px;background:var(--panel-2)}
+.tracker.bad{border-color:var(--warn);box-shadow:0 0 0 1px var(--warn) inset}
+.tracker.good{border-color:var(--go);box-shadow:0 0 0 1px var(--go) inset}
+.tstate{font-family:var(--f-display);font-weight:700;letter-spacing:.08em;font-size:13px;color:var(--fg)}
+.tstate.bad{color:var(--warn)} .tstate.good{color:var(--go)} .tstate.neg{color:#ff9a9e} .tstate.pos{color:#8ff0b5} .tstate.flat{color:var(--amber)}
+.tbar{position:relative;height:12px;border-radius:6px;background:linear-gradient(90deg,rgba(255,90,95,.35) 0%,rgba(255,90,95,.12) 25%,rgba(43,234,124,.12) 25%,rgba(43,234,124,.35) 100%);border:1px solid var(--line)}
+.tbar .tfill{position:absolute;top:0;bottom:0;background:rgba(255,255,255,.18)}
+.tbar .tentry{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--fg);transform:translateX(-1px)}
+.tbar .tnow{position:absolute;top:-4px;width:14px;height:18px;border-radius:4px;background:var(--yellow);transform:translateX(-7px);box-shadow:0 0 0 2px var(--bg)}
+.tlabels{display:flex;justify-content:space-between;font-size:11.5px;color:var(--muted)}
+.tgrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px 10px}
+.tgrid .k{font-family:var(--f-display);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.tgrid .v{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fadebox{background:var(--amber-soft);border:1px dashed var(--amber);color:var(--amber);border-radius:6px;padding:6px 9px;font-size:13px;font-weight:600}
+.tplad{display:flex;flex-wrap:wrap;gap:6px}
+.tpl{font-size:12px;border:1px solid var(--line-2);border-radius:5px;padding:2px 7px;color:var(--muted)}
+.tpl b{font-weight:600} .tpl.up b{color:var(--go)} .tpl.dn b{color:var(--warn)}
+.tpl.hit.up{background:var(--go-soft);border-color:var(--go);color:var(--go)} .tpl.hit.dn{background:var(--warn-soft);border-color:var(--warn);color:var(--warn)}
+.feed{display:grid;gap:3px;border-top:1px solid var(--line);padding-top:6px;font-size:12.5px}
+.fe{color:var(--fg)} .fe .num{color:var(--muted);margin-right:4px}
+.fe.tp1,.fe.tp2{color:var(--go)} .fe.give,.fe.fade{color:var(--amber)} .fe.nearstop,.fe.abn{color:var(--warn)}
+.fresh{font-family:var(--f-mono);font-weight:400;letter-spacing:0;color:var(--muted);font-size:11px} .fresh.stale{color:var(--warn)}
+.pastplays{display:grid;gap:3px;font-size:12.5px;border:1px solid var(--line);border-radius:6px;padding:6px 9px}
+.verified{font-family:var(--f-display);font-weight:700;font-size:12px;letter-spacing:.1em;text-transform:uppercase;margin-left:10px;padding:2px 7px;border-radius:4px;color:var(--accent);border:1px solid rgba(95,180,255,.6);vertical-align:4px}
+.gostamp{background:rgba(255,225,77,.1);border:1px solid var(--yellow);color:var(--yellow);border-radius:6px;padding:7px 10px;font-size:15px;font-weight:600}
+.cbox{background:var(--bg);border:1px solid rgba(255,111,181,.45);border-radius:6px;padding:8px 10px;display:grid;gap:3px}
+.cbox .clabel{font-family:var(--f-display);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--pink);opacity:.85}
+.cbox .cmain{font-size:18px;font-weight:600;color:var(--pink)}
+.cbox .cdte{font-size:13px;opacity:.8}
+.cbox .cline{font-size:12.5px;color:#ffb3d6}
+.cbox .cline b{color:var(--pink)}
+/* 5-MIN confirmation plays (teal) */
+:root{--five:#36d6c3;--five-ink:#02150f;--five-soft:rgba(54,214,195,.13)}
+.pill.FIVE{color:var(--five-ink);background:var(--five);border-color:var(--five)}
+.card.five{border-color:var(--five);box-shadow:0 0 0 1px var(--five) inset}
+.fivestamp{background:var(--five-soft);border:1px solid var(--five);color:var(--five);border-radius:6px;padding:7px 10px;font-size:14px;font-weight:600}
+.fivestamp.done{opacity:.65;font-weight:500}
+.toast.five{background:var(--five);color:var(--five-ink);box-shadow:0 8px 30px rgba(54,214,195,.35)}
+.chip.fivechip{color:var(--five);border-color:rgba(54,214,195,.6)}
+.lrow.g025{background:var(--five-soft);box-shadow:inset 3px 0 0 var(--five)}
+.lstat.five{color:var(--five);font-weight:600}
+td.five{color:var(--five)}
+/* Today's plays: one readable list of every play */
+.plays{border-color:var(--line-2)}
+.ptop{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.ptot{font-family:var(--f-mono);font-size:13px;border:1px solid var(--line-2);border-radius:5px;padding:3px 8px;color:var(--muted)}
+.ptot b{font-weight:600}
+.ptab td,.ptab th{padding:8px 8px;font-size:13.5px}
+.ptab tr.prow{cursor:pointer}
+.ptab tr.prow:hover td{background:var(--panel-2)}
+.ptab tr.open td{background:rgba(255,255,255,.025)}
+.ptab tr.open td:first-child{box-shadow:inset 3px 0 0 var(--yellow)}
+.ptype{font-family:var(--f-display);font-weight:700;letter-spacing:.08em;font-size:12px;padding:2px 7px;border-radius:4px;border:1px solid;display:inline-block}
+.ptype.go{color:var(--go);border-color:rgba(43,234,124,.6);background:var(--go-soft)}
+.ptype.five{color:var(--five);border-color:rgba(54,214,195,.6);background:var(--five-soft)}
+.ptype.tech{color:var(--amber);border-color:rgba(255,194,75,.6);background:var(--amber-soft)}
+.psym{font-family:var(--f-display)!important;font-weight:700;font-size:17px!important;letter-spacing:.03em}
+.pstat{font-family:var(--f-display)!important;font-weight:700;letter-spacing:.06em;font-size:13px!important}
+.pstat.open{color:var(--yellow)} .pstat.target{color:var(--go)} .pstat.stop{color:var(--warn)} .pstat.flat{color:var(--amber)}
+.pmoney{font-size:15px!important;font-weight:600}
+.pempty{color:var(--muted);font-size:13px;padding:6px 2px}
+.dots5{display:flex;gap:3px}
+.dots5 i{font-style:normal;font-family:var(--f-mono);font-size:11px;padding:0 5px;border:1px solid var(--line-2);border-radius:3px;color:var(--dim)}
+.dots5 i.on{color:var(--go-ink);background:var(--go);border-color:var(--go)}
+details.snd{display:inline-block}
+details.snd summary{cursor:pointer;color:var(--muted);font-size:12px;font-family:var(--f-display);letter-spacing:.08em;text-transform:uppercase;list-style:none;border:1px solid var(--line-2);border-radius:6px;padding:6px 10px}
+details.snd[open] summary{border-color:var(--accent);color:var(--accent)}
+details.snd .sndbody{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px}
+.seg{display:inline-flex;border:1px solid var(--line-2);border-radius:6px;overflow:hidden}
+.seg button{border:0;border-radius:0;background:transparent;padding:6px 10px}
+.seg button.on{background:var(--accent);color:#04121f;font-weight:600}
+</style>
+
+<div id="root"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/htm@3.1.1/dist/htm.umd.js"></script>
+<script>
+(function(){
+const {useState,useEffect,useRef,useCallback,useMemo} = React;
+const html = htm.bind(React.createElement);
+
+/* ======================= Rules (backtest-tuned) ======================= */
+const MON_END = 840; // GO IN allowed 8:45 AM - 2:00 PM CT; 8:45-9:00 is the prime window
+const RULES = {
+  WIN_START: 8*60+45, WIN_END: 9*60,     // CT minutes: trigger window 8:45-9:00
+  OPEN: 8*60+30, OR_END: 8*60+45,        // 15-minute opening range 8:30-8:44
+  FLAT: 14*60+40,                        // hold to 2:40 PM CT
+  ATR_K: 0.2, STOP_ATR: 0.5,
+  FLOW_PCT: 0.10, JEV_MIN: 0.65, SPREAD_MAX: 0.05,
+  ENTER: 75, DTE: 30, TP_ATR: 1.5, EXP_MIN: 14, EXP_MAX: 46,
+  FADE: 0.05                             // volume-fade flag: net volume delta back under +/-5% after entry (candidate exit, logged alongside hold)
+};
+const W = {breakout:30, flow:35, jev:25, spread:10};
+const PRIMARY = ['NVDA','TSLA'], REF = ['AAPL','SPY','QQQ','MU','PLTR','SMCI','AMD','AVGO','HOOD'], ALL = [...PRIMARY, ...REF];
+// 12-month backtest of these exact rules, 8:45-9:00 window, ~30-day options: [signals per year, avg option return %]
+const BT = {NVDA:[24,1.93],TSLA:[20,4.25],AAPL:[16,-5.87],SPY:[26,-3.38],QQQ:[30,-0.42],MU:[25,3.99],PLTR:[23,6.11],SMCI:[30,-1.44],AMD:[23,-14.98],AVGO:[20,-3.89],HOOD:[25,-3.10]};
+// Backtest Oct 22 2025 - Oct 20 2026, 1-min bars: breakout + volume delta, 0.5 ATR stop, 1.5 ATR target, flat 2:40, ~30-day ATM option costs. No Jev (no history).
+// [trades, win%, option %/trade, profit factor, first half %, second half %]
+const BT11 = {
+  win: {NVDA:[24,54.2,1.93,1.26,1.56,2.31],TSLA:[20,50.0,4.25,1.49,-2.13,9.47],AAPL:[16,25.0,-5.87,0.42,-13.74,7.24],SPY:[26,30.8,-3.38,0.51,-4.58,-1.12],QQQ:[30,50.0,-0.42,0.94,0.91,-2.41],MU:[25,60.0,3.99,1.48,1.40,6.03],PLTR:[23,56.5,6.11,2.05,3.88,8.16],SMCI:[30,46.7,-1.44,0.79,6.67,-8.55],AMD:[23,26.1,-14.98,0.18,-10.45,-19.91],AVGO:[20,40.0,-3.89,0.63,-6.12,-0.54],HOOD:[25,40.0,-3.10,0.74,-2.94,-3.34],
+        'NVDA+TSLA':[44,52.3,2.99,1.37,-0.02,5.73],'All 11':[262,44.3,-1.40,0.85,-2.06,-0.62]},
+  day: {NVDA:[89,49.4,-0.38,0.95,-0.92,0.35],TSLA:[115,53.9,0.32,1.05,-2.11,3.16],AAPL:[85,34.1,-3.98,0.50,-6.20,-2.19],SPY:[122,43.4,-0.67,0.85,-0.95,-0.33],QQQ:[112,45.5,-0.99,0.81,-0.18,-1.86],MU:[93,49.5,1.34,1.14,2.10,0.66],PLTR:[100,43.0,-1.68,0.77,-1.51,-1.87],SMCI:[108,44.4,-1.59,0.78,1.46,-4.53],AMD:[108,29.6,-10.19,0.26,-10.23,-10.15],AVGO:[100,34.0,-5.09,0.48,-4.92,-5.29],HOOD:[103,36.9,-4.08,0.57,-5.12,-2.69],
+        'NVDA+TSLA':[204,52.0,0.01,1.00,-1.58,1.99],'All 11':[1135,42.3,-2.44,0.69,-2.58,-2.30]}
+};
+const roleOf = s => PRIMARY.includes(s) ? 'verified' : 'scanner';
+const isPrime = r => r.prime===true || (r.prime==null && r.entryMin!=null && r.entryMin<=RULES.WIN_END) || (r.prime==null && r.entryMin==null && r.role==='traded');
+const BASELINE = {trades:44, win:52.3, optPct:2.81, pf:1.35, h1:-0.12, h2:5.49, months:'8 of 13'};
+
+/* ======================= Time helpers (CT) ======================= */
+const ctFmt = new Intl.DateTimeFormat('en-US',{timeZone:'America/Chicago',hour12:false,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',weekday:'short'});
+function ctParts(ms){
+  const p = Object.fromEntries(ctFmt.formatToParts(new Date(ms)).map(x=>[x.type,x.value]));
+  const h = (+p.hour)%24;
+  return {date:`${p.year}-${p.month}-${p.day}`, min:h*60+(+p.minute), wd:p.weekday};
+}
+function hms(ms){ return new Intl.DateTimeFormat('en-US',{timeZone:'America/Chicago',hour:'numeric',minute:'2-digit',second:'2-digit'}).format(new Date(ms)); }
+function hm(min){ if(min==null) return '–'; const h=Math.floor(min/60), m=min%60; const hh=((h+11)%12)+1; return `${hh}:${String(m).padStart(2,'0')} ${h<12?'AM':'PM'}`; }
+function fridayNear(dateStr, days){
+  const d = new Date(dateStr+'T12:00:00Z'); d.setUTCDate(d.getUTCDate()+days);
+  const dow = d.getUTCDay(); const diff = (5-dow+7)%7; const back = diff>3 ? diff-7 : diff;
+  d.setUTCDate(d.getUTCDate()+back); return d.toISOString().slice(0,10);
+}
+function shiftDays(dateStr, n){ const d=new Date(dateStr+'T12:00:00Z'); d.setUTCDate(d.getUTCDate()+n); return d.toISOString().slice(0,10); }
+
+/* ======================= Math ======================= */
+function ncdf(x){ const t=1/(1+0.2316419*Math.abs(x)); const d=0.3989423*Math.exp(-x*x/2); const p=d*t*(0.3193815+t*(-0.3565638+t*(1.781478+t*(-1.821256+t*1.330274)))); return x>0?1-p:p; }
+function npdf(x){ return Math.exp(-x*x/2)/Math.sqrt(2*Math.PI); }
+function bs(S,K,T,iv,call){ const r=0.04; const s=iv*Math.sqrt(T); const d1=(Math.log(S/K)+(r+iv*iv/2)*T)/s, d2=d1-s;
+  const price = call ? S*ncdf(d1)-K*Math.exp(-r*T)*ncdf(d2) : K*Math.exp(-r*T)*ncdf(-d2)-S*ncdf(-d1);
+  const delta = call ? ncdf(d1) : ncdf(d1)-1; const gamma = npdf(d1)/(S*s);
+  const theta = (-(S*npdf(d1)*iv)/(2*Math.sqrt(T)) - (call?1:-1)*r*K*Math.exp(-r*T)*ncdf(call?d2:-d2))/365;
+  return {price,delta,gamma,theta}; }
+function occ(sym, exp, side, strike){ return `O:${sym}${exp.slice(2,4)}${exp.slice(5,7)}${exp.slice(8,10)}${side>0?'C':'P'}${String(Math.round(strike*1000)).padStart(8,'0')}`; }
+function dteOf(today, exp){ return Math.round((new Date(exp+'T12:00:00Z')-new Date(today+'T12:00:00Z'))/864e5); }
+// Black-Scholes fallback (simulation or live chain unavailable): ATM strike, Friday nearest 30 days, IV proxied from ATR
+function estContract(S, atr, side, today){
+  today = today || ctParts(Date.now()).date;
+  const exp = fridayNear(today, RULES.DTE), dte = dteOf(today, exp);
+  const iv = Math.max(0.15, (atr/S)*Math.sqrt(252)*0.85), T = dte/365, call = side>0;
+  const step = S>500?10:(S>200?5:(S>50?2.5:(S>20?1:0.5)));
+  const k = Math.round(S/step)*step; const g = bs(S,k,T,iv,call);
+  return {strike:k, mid:g.price, bid:null, ask:null, delta:g.delta, gamma:g.gamma, theta:g.theta, iv, spreadPct:null, expiry:exp, dte, ticker:occ('SYM',exp,side,k), est:true};
+}
+// Value projection at 2:40 for a favorable move m ($ of stock) using delta/gamma/theta
+function project(c, m, holdFrac){ const v = c.mid + Math.abs(c.delta)*m + 0.5*c.gamma*m*m + c.theta*holdFrac; return Math.max(0.01, v); }
+
+/* ======================= Scoring ======================= */
+function analyze(bars, ref){
+  // bars: [{min,o,h,l,c,v}] RTH CT minutes for today, ascending
+  const rth = bars.filter(b=>b.min>=RULES.OPEN && b.min<15*60);
+  if(!rth.length){
+    // premarket: show the latest price and the premarket path; no range, no score yet
+    const pre = bars.filter(b=>b.min<RULES.OPEN); if(!pre.length) return null; const lp = pre[pre.length-1];
+    return {price:lp.c, lastMin:lp.min, premarket:true, orReady:false, orHi:NaN, orLo:NaN, cvd:0, vol:0, vwap:lp.c, flowPct:0,
+            series: pre.slice(-90).map(b=>({m:b.min, c:b.c, f:0})), firstCross:()=>null, hiSince:()=>-Infinity, loSince:()=>Infinity, closeAt:()=>lp.c};
+  }
+  const orBars = rth.filter(b=>b.min<RULES.OR_END);
+  const orReady = rth.some(b=>b.min>=RULES.OR_END-1) && orBars.length>=10;
+  const orHi = Math.max(...orBars.map(b=>b.h)), orLo = Math.min(...orBars.map(b=>b.l));
+  let cvd=0, vol=0, pv=0;
+  for(const b of rth){ const rng=b.h-b.l; cvd += rng>0 ? b.v*((b.c-b.l)-(b.h-b.c))/rng : 0; vol+=b.v; pv += b.v*(b.h+b.l+b.c)/3; }
+  const last = rth[rth.length-1];
+  let cc=0, vv=0; const series = rth.map(b=>{ const rng=b.h-b.l; cc += rng>0 ? b.v*((b.c-b.l)-(b.h-b.c))/rng : 0; vv+=b.v; return {m:b.min, c:b.c, h:b.h, l:b.l, v:b.v, f: vv>0?cc/vv:0}; });
+  const post = bars.filter(b=>b.min>=15*60); const ah = post.length ? {price:post[post.length-1].c, min:post[post.length-1].min} : null;
+  return {price:last.c, lastMin:last.min, ah, closed: last.min>=15*60-1, orHi, orLo, orReady, cvd, vol, vwap: vol>0?pv/vol:last.c, flowPct: vol>0?cvd/vol:0, series,
+          firstCross:(m0, level, below)=>{ const b=rth.find(x=>x.min>m0 && (below ? x.l<=level : x.h>=level)); return b?b.min:null; },
+          hiSince:(m)=>Math.max(...rth.filter(b=>b.min>m).map(b=>b.h), -Infinity), loSince:(m)=>Math.min(...rth.filter(b=>b.min>m).map(b=>b.l), Infinity),
+          closeAt:(m)=>{ const b=rth.filter(x=>x.min<=m); return b.length?b[b.length-1].c:null; }};
+}
+function score(a, atr, side, pUp, spreadOk){
+  const lvl = side>0 ? a.orHi + RULES.ATR_K*atr : a.orLo - RULES.ATR_K*atr;
+  const pDir = pUp==null ? null : (side>0 ? pUp : 1-pUp);
+  const L = {
+    breakout: a.orReady && (side>0 ? a.price>lvl : a.price<lvl),
+    flow: side>0 ? a.flowPct>=RULES.FLOW_PCT : a.flowPct<=-RULES.FLOW_PCT,
+    jev: pDir!=null && pDir>=RULES.JEV_MIN,
+    spread: !!spreadOk
+  };
+  const s = (L.breakout?W.breakout:0)+(L.flow?W.flow:0)+(L.jev?W.jev:0)+(L.spread?W.spread:0);
+  return {score:s, L, lvl, pDir, go: s>=RULES.ENTER && L.flow && L.jev};
+}
+function bestSide(a, atr, pUp, spreadOk){
+  const u=score(a,atr,1,pUp,spreadOk), d=score(a,atr,-1,pUp,spreadOk);
+  return u.score>=d.score ? {side:1,...u} : {side:-1,...d};
+}
+
+/* ======================= CSV from Massive call_api ======================= */
+function resultText(res){
+  let p = res && (res.payload!==undefined ? res.payload : null);
+  if(p && typeof p==='object' && typeof p.result==='string') return p.result;
+  if(typeof p==='string'){ try{ const j=JSON.parse(p); if(j && typeof j.result==='string') return j.result; }catch(e){} return p; }
+  const t = res && res.content && res.content.find(c=>c.type==='text');
+  if(t){ try{ const j=JSON.parse(t.text); if(j && typeof j.result==='string') return j.result; }catch(e){} return t.text; }
+  return '';
+}
+function splitRow(line){ const out=[]; let cur='', q=false, depth=0;
+  for(let i=0;i<line.length;i++){ const ch=line[i];
+    if(q){ if(ch==='"'){ if(line[i+1]==='"'){cur+='"';i++;} else q=false; } else cur+=ch; continue; }
+    if(ch==='"'){q=true;continue;} if(ch==='['||ch==='{')depth++; if(ch===']'||ch==='}')depth--;
+    if(ch===','&&depth===0){out.push(cur);cur='';} else cur+=ch; }
+  out.push(cur); return out; }
+function parseCSV(text){
+  const lines = text.split('\n'); const rows=[]; if(!lines.length) return rows;
+  const head = splitRow(lines[0]); if(head.length<2) return rows;
+  for(let i=1;i<lines.length;i++){ const ln=lines[i]; if(!ln.trim()) break; const c=splitRow(ln); const o={}; head.forEach((h,j)=>o[h]=c[j]); rows.push(o); }
+  return rows;
+}
+
+/* ======================= Simulator ======================= */
+const SEED = {NVDA:{px:221.1,atrPct:0.028}, TSLA:{px:371.6,atrPct:0.036}, SPY:{px:769.3,atrPct:0.011}, QQQ:{px:715.2,atrPct:0.0135}, AAPL:{px:340,atrPct:0.02}, MU:{px:915,atrPct:0.045}, PLTR:{px:197,atrPct:0.045}, SMCI:{px:37.5,atrPct:0.05}, AMD:{px:550,atrPct:0.04}, AVGO:{px:345,atrPct:0.03}, HOOD:{px:100,atrPct:0.055}};
+function gauss(){ let u=0,v=0; while(!u)u=Math.random(); while(!v)v=Math.random(); return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v); }
+function genDay(sym, mkt){
+  const s=SEED[sym], prevClose=s.px*(1+gauss()*0.004), atr=prevClose*s.atrPct;
+  const beta = sym==='SPY'||sym==='QQQ' ? 1 : 1.6;
+  const trend = Math.max(-1,Math.min(1, mkt*0.6 + gauss()*0.6));
+  const gap = (mkt*0.004 + gauss()*0.006)*beta;
+  let px = prevClose*(1+gap); const bars=[]; const sig = atr/24;
+  for(let m=RULES.OPEN;m<15*60;m++){
+    const early = m<9*60+30 ? 1.6 : 0.8;
+    const drift = trend*atr*0.9/390*(m<11*60?1.6:0.7);
+    const o=px; const c=o+drift+gauss()*sig*early; const h=Math.max(o,c)+Math.abs(gauss())*sig*0.5; const l=Math.min(o,c)-Math.abs(gauss())*sig*0.5;
+    const v=Math.round((m<9*60?3:1)*(800000/ (s.px/100)) * (0.6+Math.random()));
+    bars.push({min:m,o,h,l,c,v}); px=c;
+  }
+  const pUp = Math.max(0.05,Math.min(0.95, 0.5 + trend*0.28 + gauss()*0.08));
+  return {sym, prevClose, atr, bars, pUp, spreadOk: Math.random()<0.85};
+}
+
+/* ======================= Alert sound ======================= */
+let AC=null;
+function audioOn(){ try{ AC = AC || new (window.AudioContext||window.webkitAudioContext)(); if(AC.state==='suspended') AC.resume(); return true; }catch(e){ return false; } }
+function chaChing(){
+  if(!AC) return; const t0=AC.currentTime+0.02; const out=AC.createGain(); out.gain.value=0.55; out.connect(AC.destination);
+  // "cha": short bright noise burst (register drawer)
+  const len=Math.floor(AC.sampleRate*0.09), buf=AC.createBuffer(1,len,AC.sampleRate), d=buf.getChannelData(0);
+  for(let i=0;i<len;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/len,2);
+  const ns=AC.createBufferSource(); ns.buffer=buf; const hp=AC.createBiquadFilter(); hp.type='highpass'; hp.frequency.value=2500; const ng=AC.createGain(); ng.gain.value=0.8;
+  ns.connect(hp); hp.connect(ng); ng.connect(out); ns.start(t0);
+  // "ching": two bell strikes with inharmonic partials
+  [[t0+0.11,1],[t0+0.24,1.12]].forEach(([st,mul])=>{
+    [[2093,1],[2637,0.6],[3520,0.45],[5274,0.25]].forEach(([f,a])=>{
+      const o=AC.createOscillator(); o.type='sine'; o.frequency.value=f*mul; const g=AC.createGain();
+      g.gain.setValueAtTime(0.0001,st); g.gain.exponentialRampToValueAtTime(0.32*a,st+0.008); g.gain.exponentialRampToValueAtTime(0.0001,st+0.9);
+      o.connect(g); g.connect(out); o.start(st); o.stop(st+0.95); });
+  });
+}
+function techDing(){
+  if(!AC) return; const t0=AC.currentTime+0.02; const out=AC.createGain(); out.gain.value=0.5; out.connect(AC.destination);
+  // two rising marimba-like notes: clearly different from the cash-register cha-ching
+  [[t0,659.25],[t0+0.16,987.77]].forEach(([st,f])=>{ [[1,0.5],[4,0.12]].forEach(([h,a])=>{
+    const o=AC.createOscillator(); o.type= h===1?'triangle':'sine'; o.frequency.value=f*h; const g=AC.createGain();
+    g.gain.setValueAtTime(0.0001,st); g.gain.exponentialRampToValueAtTime(a,st+0.01); g.gain.exponentialRampToValueAtTime(0.0001,st+0.55);
+    o.connect(g); g.connect(out); o.start(st); o.stop(st+0.6); }); });
+}
+function sayTech(sym, side){ try{ if(!window.speechSynthesis) return; const u=new SpeechSynthesisUtterance(sym.split('').join(' ')+', tech GO, '+(side>0?'calls':'puts')+', waiting on Jev'); u.rate=1.05; setTimeout(()=>window.speechSynthesis.speak(u),500); }catch(e){} }
+function fadeTone(){
+  if(!AC) return; const t0=AC.currentTime+0.02; const out=AC.createGain(); out.gain.value=0.45; out.connect(AC.destination);
+  [[t0,880],[t0+0.18,587.33],[t0+0.36,440]].forEach(([st,f])=>{ const o=AC.createOscillator(); o.type='sine'; o.frequency.value=f; const g=AC.createGain();
+    g.gain.setValueAtTime(0.0001,st); g.gain.exponentialRampToValueAtTime(0.4,st+0.01); g.gain.exponentialRampToValueAtTime(0.0001,st+0.4); o.connect(g); g.connect(out); o.start(st); o.stop(st+0.45); });
+}
+function sayFade(sym){ try{ if(!window.speechSynthesis) return; const u=new SpeechSynthesisUtterance(sym.split('').join(' ')+', volume faded, consider exit'); u.rate=1.05; setTimeout(()=>window.speechSynthesis.speak(u),700); }catch(e){} }
+function tpTone(){
+  if(!AC) return; const t0=AC.currentTime+0.02; const out=AC.createGain(); out.gain.value=0.45; out.connect(AC.destination);
+  [[t0,1046.5],[t0+0.12,1318.5],[t0+0.24,1568]].forEach(([st,f])=>{ const o=AC.createOscillator(); o.type='triangle'; o.frequency.value=f; const g=AC.createGain();
+    g.gain.setValueAtTime(0.0001,st); g.gain.exponentialRampToValueAtTime(0.35,st+0.01); g.gain.exponentialRampToValueAtTime(0.0001,st+0.35); o.connect(g); g.connect(out); o.start(st); o.stop(st+0.4); });
+}
+function sayLine(text){ try{ if(!window.speechSynthesis) return; const u=new SpeechSynthesisUtterance(text); u.rate=1.05; setTimeout(()=>window.speechSynthesis.speak(u),600); }catch(e){} }
+const spell = s => s.split('').join(' ');
+// 5-MIN GO: three quick bright pulses, clearly different from cha-ching (GO IN) and the marimba (TECH GO)
+function fiveTone(){
+  if(!AC) return; const t0=AC.currentTime+0.02; const out=AC.createGain(); out.gain.value=0.45; out.connect(AC.destination);
+  [t0,t0+0.13,t0+0.26].forEach((st,i)=>{ const o=AC.createOscillator(); o.type='square'; o.frequency.value= i===2?1568:1175; const lp=AC.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=3000; const g=AC.createGain();
+    g.gain.setValueAtTime(0.0001,st); g.gain.exponentialRampToValueAtTime(0.18,st+0.008); g.gain.exponentialRampToValueAtTime(0.0001,st+0.11); o.connect(lp); lp.connect(g); g.connect(out); o.start(st); o.stop(st+0.13); });
+}
+// Stop hit: two low falling notes
+function stopTone(){
+  if(!AC) return; const t0=AC.currentTime+0.02; const out=AC.createGain(); out.gain.value=0.45; out.connect(AC.destination);
+  [[t0,392],[t0+0.22,261.6]].forEach(([st,f])=>{ const o=AC.createOscillator(); o.type='triangle'; o.frequency.value=f; const g=AC.createGain();
+    g.gain.setValueAtTime(0.0001,st); g.gain.exponentialRampToValueAtTime(0.45,st+0.01); g.gain.exponentialRampToValueAtTime(0.0001,st+0.45); o.connect(g); g.connect(out); o.start(st); o.stop(st+0.5); });
+}
+function sayFive(sym, side){ sayLine(spell(sym)+', five minute GO, '+(side>0?'calls':'puts')); }
+function sayGo(sym, side){ try{ if(!window.speechSynthesis) return; const u=new SpeechSynthesisUtterance(sym.split('').join(' ')+', GO IN, '+(side>0?'calls':'puts')); u.rate=1.05; setTimeout(()=>window.speechSynthesis.speak(u),900); }catch(e){} }
+
+/* ======================= Small components ======================= */
+const f2 = n => Number.isFinite(n) ? n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}) : '–';
+const pct = (n,d=1) => Number.isFinite(n) ? (n>=0?'+':'')+n.toFixed(d)+'%' : '–';
+
+function Layer({name,pts,on,val,req}){
+  return html`<div className=${'layer'+(on?' on':'')+(req?' req':'')} title=${req?'Required for GO IN':''}>
+    <div className="lt"><span>${name}${req?' *':''}</span><b className="num">${on?'+'+pts:'0'}/${pts}</b></div>
+    <div className="lv num">${val}</div></div>`;
+}
+
+function Projections({c, side, entry, atr, fromMin}){
+  if(!c) return null;
+  const holdFrac = Math.max(0, (RULES.FLAT - (fromMin??RULES.WIN_START)))/390;
+  const rows = [
+    ['Stop hit (−0.5 ATR)', -RULES.STOP_ATR*atr, holdFrac*0.35],
+    ['No move, flat at 2:40', 0, holdFrac],
+    ['+0.5 ATR by 2:40', 0.5*atr, holdFrac],
+    ['+1.0 ATR by 2:40', 1.0*atr, holdFrac],
+    ['+1.5 ATR by 2:40', 1.5*atr, holdFrac]
+  ];
+  return html`<div className="tbl"><table>
+    <thead><tr><th>Scenario</th><th>Stock at</th><th>Option est.</th><th>Per contract</th><th>Return</th></tr></thead>
+    <tbody>${rows.map(([lbl,m,hf])=>{ const v=project(c,m,hf); const r=(v/c.mid-1)*100; return html`<tr key=${lbl}>
+      <td style=${{fontFamily:'var(--f-body)'}}>${lbl}</td><td>${f2(entry+side*m)}</td><td>${f2(v)}</td>
+      <td className=${r>=0?'up':'dn'}>${(r>=0?'+$':'−$')+Math.abs((v-c.mid)*100).toFixed(0)}</td><td className=${r>=0?'up':'dn'}>${pct(r)}</td></tr>`; })}</tbody>
+  </table></div>`;
+}
+
+function MiniChart({a, sc, trade, side}){
+  const ser = a.series; if(ser.length<2) return null;
+  const Wd=600, H=120, Hf=40, x0=a.premarket?ser[0].m:RULES.OPEN, x1=a.premarket?Math.max(ser[0].m+30,a.lastMin+5):Math.min(15*60, Math.max(RULES.OPEN+90, a.lastMin+30));
+  const lines = [];
+  if(a.orReady){ lines.push([a.orHi,'var(--line-2)','15m high'],[a.orLo,'var(--line-2)','15m low']); if(sc) lines.push([sc.lvl,'var(--accent)','trigger']); }
+  if(trade){ lines.push([trade.entry,'var(--fg)','entry'],[trade.stop,'var(--warn)','stop'],[trade.tp,'var(--go)','target']); }
+  const vals = ser.map(p=>p.c).concat(lines.map(l=>l[0]));
+  const lo=Math.min(...vals), hi=Math.max(...vals), pad=(hi-lo)*0.06||1;
+  const sx=m=>((m-x0)/(x1-x0))*Wd, sy=v=>H-4-((v-lo+pad)/((hi-lo)+2*pad))*(H-8);
+  const fmax=Math.max(0.15,...ser.map(p=>Math.abs(p.f))); const fy=f=>Hf/2-(f/fmax)*(Hf/2-3);
+  const win = [sx(RULES.WIN_START), sx(RULES.WIN_END)];
+  return html`<div style=${{display:'grid',gap:'2px'}}>
+    <div className="row"><span className="lbl">1-min price · ${hm(x0)} to ${hm(x1)} CT${a.premarket?' (premarket)':''}</span><span className="note">shaded = 8:45–9:00 window</span></div>
+    <svg viewBox=${'0 0 '+Wd+' '+H} preserveAspectRatio="none" style=${{width:'100%',height:'120px',display:'block'}} role="img" aria-label="Price with trigger, entry, stop and target lines">
+      <rect x=${win[0]} y="0" width=${win[1]-win[0]} height=${H} fill="var(--accent)" opacity="0.08"/>
+      ${lines.map(([v,c,l],i)=>html`<g key=${i}><line x1="0" x2=${Wd} y1=${sy(v)} y2=${sy(v)} stroke=${c} strokeDasharray=${l==='entry'?'':'4 4'} strokeWidth="1" vectorEffect="non-scaling-stroke"/></g>`)}
+      <polyline points=${ser.map(p=>sx(p.m).toFixed(1)+','+sy(p.c).toFixed(1)).join(' ')} fill="none" stroke="var(--fg)" strokeWidth="1.5" vectorEffect="non-scaling-stroke"/>
+      ${trade && html`<circle cx=${sx(trade.entryMin)} cy=${sy(trade.entry)} r="4" fill=${trade.side>0?'var(--go)':'var(--warn)'}/>`}
+    </svg>
+    <div className="row"><span className="lbl">Volume delta · net % of session volume</span><span className=${'note num '+(a.flowPct>=0?'up':'dn')}>${pct(a.flowPct*100)} (gate ±10%)</span></div>
+    <svg viewBox=${'0 0 '+Wd+' '+Hf} preserveAspectRatio="none" style=${{width:'100%',height:'40px',display:'block'}} role="img" aria-label="Cumulative volume delta as a share of session volume">
+      <line x1="0" x2=${Wd} y1=${fy(0)} y2=${fy(0)} stroke="var(--line-2)" strokeWidth="1" vectorEffect="non-scaling-stroke"/>
+      <line x1="0" x2=${Wd} y1=${fy(0.1)} y2=${fy(0.1)} stroke="var(--go)" strokeDasharray="3 3" strokeWidth="1" opacity=".6" vectorEffect="non-scaling-stroke"/>
+      <line x1="0" x2=${Wd} y1=${fy(-0.1)} y2=${fy(-0.1)} stroke="var(--warn)" strokeDasharray="3 3" strokeWidth="1" opacity=".6" vectorEffect="non-scaling-stroke"/>
+      <polyline points=${ser.map(p=>sx(p.m).toFixed(1)+','+fy(p.f).toFixed(1)).join(' ')} fill="none" stroke=${a.flowPct>=0?'var(--go)':'var(--warn)'} strokeWidth="1.5" vectorEffect="non-scaling-stroke"/>
+    </svg>
+    <div className="legend note">${lines.map(([v,c,l])=>html`<span key=${l}><i style=${{background:c}}></i>${l} ${f2(v)}</span>`)}</div>
+  </div>`;
+}
+
+// Contracts by dollar budget: as many as fit (max 3), never fewer than 1
+function sizeBudget(c, budget){
+  if(!c || !(c.mid>0)) return null; const per=c.mid*100; const fit=Math.floor((budget||0)/per);
+  const n=Math.max(1, Math.min(3, fit)); return {n, per, cost:n*per, over: fit<1};
+}
+const expTxt = e => { if(!e) return '–'; const d=new Date(e+'T12:00:00Z'); return d.toLocaleDateString('en-US',{month:'short',day:'numeric',timeZone:'UTC'}); };
+
+function ContractBox({t, budget, mode}){
+  const openFive = t.five && t.five.exit==null ? t.five : null;
+  const tr = t.trade || openFive || t.shadow || t.five || null;
+  const c = tr===t.trade ? t.contract : (tr && tr.contract ? (t.contract && t.contract.ticker && t.contract.ticker===tr.contract.ticker ? {...tr.contract, ...t.contract} : {...tr.contract, side:tr.side}) : t.contract);
+  const tierName = tr===t.trade ? 'GO IN' : (tr && tr===t.five ? '5-MIN' : 'TECH GO');
+  if(!c) return html`<div className="note">${mode==='live'?(t.a&&t.a.closed?'Session closed · contract quotes return at the open.':'Contract loads after the first refresh.'):'Contract appears once the range is set.'}</div>`;
+  const side = tr ? tr.side : (c.side||1); const prem = tr && tr.premEntry ? tr.premEntry : c.mid; const atr=t.atr;
+  const hold = Math.max(0, RULES.FLAT-(tr?tr.entryMin:Math.max(RULES.WIN_START, t.a?t.a.lastMin:RULES.WIN_START)))/390;
+  const cc={...c, mid:prem}; const vSl=project(cc,-RULES.STOP_ATR*atr,hold*0.3), vTp=project(cc,RULES.TP_ATR*atr,hold*0.5);
+  const z = tr && tr.contracts ? {n:tr.contracts, per:prem*100, cost:tr.contracts*prem*100, over: prem*100>(tr.budget||budget)} : sizeBudget(cc, budget);
+  return html`<div className="cbox">
+    <div className="clabel">${tr?('Contract · priced at '+tierName):'Contract if it fires now'}${c.est?' · estimate':''}</div>
+    <div className="cmain num">${t.sym} ${expTxt(c.expiry)} $${f2(c.strike)} ${side>0?'CALL':'PUT'} <span className="cdte">${c.dte!=null?c.dte+'d':''}</span></div>
+    <div className="cline num">${tr?'entry':'mid'} $${f2(prem)} = $${prem?(prem*100).toLocaleString('en-US',{maximumFractionDigits:0}):'–'}/contract${c.bid!=null?(tr?' · now':'')+' bid $'+f2(c.bid)+' / ask $'+f2(c.ask):''} · Δ ${c.delta!=null?Math.abs(c.delta).toFixed(2):'–'}${!tr && c.quoteAt?' · quote '+hms(c.quoteAt)+' CT':''}${tr && c.quoteAt?' · priced '+hms(c.quoteAt)+' CT':''}</div>
+    ${z && html`<div className="cline num"><b>${z.n} contract${z.n===1?'':'s'}</b> · $${Math.round(z.cost).toLocaleString('en-US')} total${z.over?' · over your $'+budget.toLocaleString('en-US')+' budget':''} · at stop ≈ −$${Math.round(z.n*Math.max(0,prem-vSl)*100).toLocaleString('en-US')} · at target ≈ +$${Math.round(z.n*Math.max(0,vTp-prem)*100).toLocaleString('en-US')}</div>`}
+  </div>`;
+}
+
+// Live play tracker for an open or closed GO IN / TECH GO
+function PlayTracker({t, x, tier, budget, contract, full}){
+  const a=t.a; if(!a||!x||!t.atr) return null; const atr=t.atr;
+  const open = x.exit==null; const px = open ? a.price : x.exit;
+  const R = x.side*(px-x.entry)/(RULES.STOP_ATR*atr);
+  const pos = Math.max(0, Math.min(100, (R+1)/4*100));
+  const toStop = Math.abs(px - x.stop), toTarget = Math.abs(x.tp - px);
+  const minsLeft = Math.max(0, RULES.FLAT - a.lastMin);
+  const zone = !open ? (x.reason==='target'?'good':(x.reason==='stop'?'bad':'flat')) : (R<=-0.7?'bad':(R>=2.4?'good':(R<0?'neg':'pos')));
+  const state = (open ? (R<=-0.7?'NEAR STOP':(R>=2.4?'NEAR TARGET':'OPEN')) : ({stop:'STOPPED',target:'TARGET HIT',flat:'FLAT 2:40'}[x.reason]||'CLOSED')+' · '+hm(x.exitMin)) + (x.fade?' · FADED':'');
+  const prem = x.premEntry; const ownCt = x.contract || contract;
+  const live = open ? (x.liveMid ?? (contract&&contract.ticker===(x.contract?x.contract.ticker:contract.ticker)&&!contract.est?contract.mid:(ownCt&&prem?project({...ownCt, mid:prem}, x.side*(a.price-x.entry), Math.max(0,a.lastMin-x.entryMin)/390):null))) : x.premExit;
+  const n = x.contracts || (prem ? sizeBudget({mid:prem}, budget).n : 1);
+  const pnl = prem && live ? n*(live-prem)*100 : null;
+  const money=v=>(v>=0?'+$':'−$')+Math.abs(Math.round(v)).toLocaleString('en-US');
+  return html`<div className=${'tracker '+zone}>
+    <div className="row"><span className="lbl">${tier} ${x.side>0?'CALL':'PUT'}${(x.n||1)>1?' · play #'+x.n:''} · live play</span>
+      <span className=${'tstate '+zone}>${state}${open?' · '+Math.floor(minsLeft/60)+'h '+(minsLeft%60)+'m to 2:40 flat':''}${open && t.updatedAt?html`<span className=${'fresh'+(Date.now()-t.updatedAt>90e3?' stale':'')}> · updated ${hms(t.updatedAt)}</span>`:''}</span></div>
+    <div className="tbar" role="img" aria-label=${'Price between stop and target, '+R.toFixed(2)+'R'}>
+      <div className="tfill" style=${{left: (R>=0?25:pos)+'%', width: Math.abs(pos-25)+'%'}}></div>
+      <i className="tentry" style=${{left:'25%'}}></i><i className="tnow" style=${{left:pos+'%'}}></i>
+    </div>
+    <div className="tlabels num"><span className="dn">stop ${f2(x.stop)}</span><span>entry ${f2(x.entry)}</span><span className="up">target ${f2(x.tp)}</span></div>
+    <div className="tgrid num">
+      <div><div className="k">${open?'Now':'Exit'}</div><div className="v">${f2(px)}</div></div>
+      <div><div className="k">R</div><div className=${'v '+(R>=0?'up':'dn')}>${(R>=0?'+':'')+R.toFixed(2)}R</div></div>
+      <div><div className="k">To stop</div><div className="v dn">${open?'$'+f2(toStop)+' · '+(toStop/px*100).toFixed(2)+'%':'–'}</div></div>
+      <div><div className="k">To target</div><div className="v up">${open?'$'+f2(toTarget)+' · '+(toTarget/px*100).toFixed(2)+'%':'–'}</div></div>
+      <div><div className="k">Option</div><div className=${'v '+((live??prem)>=prem?'up':'dn')}>${prem?'$'+f2(prem)+' → '+(live?'$'+f2(live):'–'):'–'}${x.liveAt&&open?html`<span className="note"> ${hms(x.liveAt)}</span>`:''}</div></div>
+      <div><div className="k">P&L · ${n} contract${n===1?'':'s'}</div><div className=${'v '+((pnl??0)>=0?'up':'dn')}>${pnl==null?'–':money(pnl)+' ('+pct((live/prem-1)*100)+')'}</div></div>
+    </div>
+    <div className="tplad num">
+      ${[['Stop −1R',x.stop,'dn',R<=-1],['TP1 +1R',x.entry+x.side*RULES.STOP_ATR*atr,'up',(x.maxR||0)>=1],['TP2 +2R',x.entry+x.side*2*RULES.STOP_ATR*atr,'up',(x.maxR||0)>=2],['Target +3R',x.tp,'up',x.reason==='target']].map(([l,v,c,hit])=>html`<span key=${l} className=${'tpl '+c+(hit?' hit':'')}>${hit?'✓ ':''}${l} <b>$${f2(v)}</b></span>`)}
+    </div>
+    ${(x.ev||[]).length>0 && html`<div className="feed">${(x.ev||[]).slice().reverse().slice(0,full?6:3).map((e,i)=>html`<div key=${i} className=${'fe '+e.type}><span className="num">${hm(e.m)}</span> ${e.msg}</div>`)}</div>`}
+    ${x.fade && html`<div className="fadebox num">VOLUME FADED · ${hm(x.fade.min)} CT · fade exit $${f2(x.fade.px)} (${(x.fade.R>=0?'+':'')+x.fade.R.toFixed(2)}R)${x.fade.prem?' · option $'+f2(x.fade.prem)+' ('+pct(x.fade.optPct)+(x.fade.real?'':' est')+') · '+money(n*(x.fade.prem-prem)*100):''}<span className="note"> · candidate exit, logged next to the hold result</span></div>`}
+    ${full && x.fade===null && html`<div className="note">No volume fade before the exit: the fade rule gives the same result as holding.</div>`}
+  </div>`;
+}
+
+function FiveStamp({x}){
+  const word = x.exit!=null ? ({stop:'stopped',target:'target hit',flat:'flat 2:40'}[x.reason]||'closed')+' '+hm(x.exitMin) : null;
+  const one = x.oneMin;
+  return html`<div className=${'fivestamp num'+(x.exit!=null?' done':'')}>5-MIN GO ${x.side>0?'CALL':'PUT'}${(x.n||1)>1?' · play #'+x.n:''} · ${hm(x.entryMin-4)}–${hm(x.entryMin).replace(/ [AP]M/,'')} candle closed @ ${f2(x.entry)}${x.fiveAt?' · alerted '+hms(x.fiveAt):''} · Jev ${x.pDir!=null?(x.pDir*100).toFixed(0)+'% '+(x.jevOk?'agrees':'does not agree'):'no read'}${one?' · 1-min GO IN was '+hm(one.entryMin)+(one.side!==x.side?' (other side)':''):''}${x.late?' · found on refresh, not alerted live':''}${word?' · '+word:''}</div>`;
+}
+function Card({t, flash, budget, mode, detail}){
+  const st = t.status; // PRE | SCAN | GO | STOP | FLAT | NONE
+  const full = detail==='full';
+  const pillTxt = {PRE: t.a && t.a.premarket ? 'PREMARKET' : 'OPENING RANGE', SCAN:'SCANNING', GO:'GO IN', STOP:'STOPPED', TP:'TARGET HIT', FLAT:'FLAT 2:40', NONE:'NO TRADE TODAY', IDLE: t.err ? 'NO DATA ('+t.err+')' : (t.noBars ? 'NO BARS YET' : 'LOADING'), CLOSEDDAY:'MARKET CLOSED'}[st]||st;
+  const verified = PRIMARY.includes(t.sym); const bt = BT11.win[t.sym];
+  const fiveOpen = t.five && t.five.exit==null;
+  const a=t.a, sc=t.sc, side=t.trade? t.trade.side : (fiveOpen ? t.five.side : (sc?sc.side:1));
+  const chg = a && t.prevClose ? (a.price/t.prevClose-1)*100 : null;
+  const goOpen = t.trade && t.trade.exit==null;
+  const techOpen = !t.trade && t.shadow && t.shadow.exit==null;
+  const pillK = goOpen ? 'GO' : (fiveOpen ? 'FIVE' : (techOpen ? 'TECH' : ({SCAN:'SCAN',GO:'GO',TP:'GO',STOP:'STOP',FLAT:'FLAT'}[st]||'')));
+  const pillT = goOpen ? 'GO IN' : (fiveOpen ? '5-MIN GO' : (techOpen ? 'TECH GO' : pillTxt));
+  const cls = 'card'+(goOpen?' go':(fiveOpen?' five':(techOpen?' tech':'')))+(st==='STOP'&&!fiveOpen?' stopped':'')+(flash?' flash':'');
+  const color = sc && sc.go ? 'var(--go)' : (sc && sc.score>=60 ? 'var(--amber)' : 'var(--muted)');
+  const contract = t.contract;
+  return html`<article className=${cls} id=${'card-'+t.sym}>
+    <div className="row">
+      <div><span className="sym">${t.sym}</span><span className=${'side '+(side>0?'calls':'puts')}>${side>0?'CALLS':'PUTS'}</span>${verified && html`<span className="verified">✓ Verified</span>`}</div>
+      <span className=${'pill '+pillK}>${pillT}</span>
+    </div>
+    <div className="row">
+      <div>${a&&a.closed?html`<span className="lbl" style=${{marginRight:'6px'}}>Close</span>`:''}<span className="price num">${a?f2(a.price):'–'}</span> ${chg!=null && html`<span className=${'num '+(chg>=0?'up':'dn')}>${pct(chg,2)}</span>`}
+        ${a&&a.ah && html`<span className="ahpx num">After hours $${f2(a.ah.price)} <span>${pct((a.ah.price/a.price-1)*100,2)}</span> · ${hm(a.ah.min)}</span>`}</div>
+      <div className="note num">${a? (t.lastDay ? `last session ${dateLabel(t.lastDay)} · ${hm(a.lastMin)} CT` : `as of ${hm(a.lastMin)} CT`):''}</div>
+    </div>
+    ${full && html`<div className="kv">
+      <div><div className="k">15m high</div><div className="v num">${a&&a.orReady?f2(a.orHi):'forming'}</div></div>
+      <div><div className="k">15m low</div><div className="v num">${a&&a.orReady?f2(a.orLo):'forming'}</div></div>
+      <div><div className="k">ATR (14d)</div><div className="v num">${f2(t.atr)}</div></div>
+      <div><div className="k">Jev ${side>0?'up':'down'}</div><div className="v num" style=${{color: sc&&sc.L.jev?'var(--go)':'var(--fg)'}}>${t.pUp==null?'pending':((side>0?t.pUp:1-t.pUp)*100).toFixed(0)+'%'}</div></div>
+    </div>`}
+    ${sc && !full && html`<div style=${{display:'grid',gap:'6px'}}>
+      <div className="scorehead"><span className="lbl">${t.lastDay?'Score at '+dateLabel(t.lastDay)+' close':'Score · GO IN at 75'}</span>
+        <span className="row" style=${{gap:'10px'}}><span className="dots5">${[['Break',sc.L.breakout],['Vol',sc.L.flow],['Jev '+(t.pUp==null?'–':((side>0?t.pUp:1-t.pUp)*100).toFixed(0)+'%'),sc.L.jev],['Spread',sc.L.spread]].map(([k,on])=>html`<i key=${k} className=${on?'on':''}>${k}</i>`)}</span><span className="big" style=${{color}}>${sc.score}</span></span></div>
+      <div className="meter" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow=${sc.score} aria-label=${t.sym+' conviction score'}>
+        <div className="fill" style=${{width:sc.score+'%',background:color}}></div><div className="tick" style=${{left:'75%'}}></div></div>
+      ${a && a.orReady && !t.trade && !fiveOpen && html`<div className="note num">Trigger: calls above ${f2(a.orHi+RULES.ATR_K*t.atr)} · puts below ${f2(a.orLo-RULES.ATR_K*t.atr)} · volume ${pct(a.flowPct*100)} (needs ±10%)</div>`}
+    </div>`}
+    ${sc && full && html`<div style=${{display:'grid',gap:'6px'}}>
+      <div className="scorehead"><span className="lbl">${t.lastDay?'Conviction score at '+dateLabel(t.lastDay)+' close · Jev on overnight news':'Conviction score · GO needs 75 with volume and Jev aligned'}</span><span className="big" style=${{color}}>${sc.score}<span style=${{fontSize:'13px',color:'var(--dim)'}}>/100</span></span></div>
+      <div className="meter" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow=${sc.score} aria-label=${t.sym+' conviction score'}>
+        <div className="fill" style=${{width:sc.score+'%',background:color}}></div><div className="tick" style=${{left:'75%'}}></div></div>
+      <div className="layers">
+        <${Layer} name="Breakout" pts=${W.breakout} on=${sc.L.breakout} val=${a&&a.orReady?(side>0?'> ':'< ')+f2(sc.lvl):'range forming'}/>
+        <${Layer} name="Volume Δ" pts=${W.flow} req=${true} on=${sc.L.flow} val=${'net '+(a?(a.flowPct*100).toFixed(1):'–')+'% of vol'}/>
+        <${Layer} name="Jev" pts=${W.jev} req=${true} on=${sc.L.jev} val=${t.pUp==null?'no read yet':'p '+((side>0?t.pUp:1-t.pUp)*100).toFixed(0)+'% ≥ 65'}/>
+        <${Layer} name="Spread" pts=${W.spread} on=${sc.L.spread} val=${contract&&contract.spreadPct!=null?(contract.spreadPct*100).toFixed(1)+'% of mid':'unpriced'}/>
+      </div></div>`}
+    ${t.shadow && html`<div className=${'techstamp num'+(t.shadow.exit!=null||t.trade?' done':'')}>TECH GO ${t.shadow.side>0?'CALL':'PUT'} · ${t.shadow.techAt?hms(t.shadow.techAt):hm(t.shadow.entryMin)} CT · @ ${f2(t.shadow.entry)} · price + volume passed, Jev ${t.shadow.pDir!=null?(t.shadow.pDir*100).toFixed(0)+'%':'no read'} (needs 65%)${t.trade?' · upgraded to GO IN':(t.shadow.exit!=null?' · '+({stop:'stopped',target:'target hit',flat:'flat 2:40'}[t.shadow.reason]||'closed')+' '+hm(t.shadow.exitMin):'')}</div>`}
+    ${t.trade && html`<div className="gostamp num">GO IN ${t.trade.side>0?'CALL':'PUT'} · fired ${t.trade.goAt?hms(t.trade.goAt):hm(t.trade.entryMin)} CT · signal bar ${hm(t.trade.entryMin)} · ${t.trade.prime?'prime window':'after 9:00'}</div>`}
+    ${t.five && html`<${FiveStamp} x=${t.five}/>`}
+    <${ContractBox} t=${t} budget=${budget} mode=${mode}/>
+    ${t.trade && (full || t.trade.exit==null) && html`<${PlayTracker} t=${t} x=${t.trade} tier="GO IN" budget=${budget} contract=${t.contract} full=${full}/>`}
+    ${t.five && (full || t.five.exit==null) && html`<${PlayTracker} t=${t} x=${t.five} tier="5-MIN" budget=${budget} contract=${t.contract} full=${full}/>`}
+    ${!t.trade && t.shadow && (full || t.shadow.exit==null) && html`<${PlayTracker} t=${t} x=${t.shadow} tier="TECH GO" budget=${budget} contract=${t.contract} full=${full}/>`}
+    ${full && (t.past||[]).length>0 && html`<div className="pastplays num"><span className="lbl">Earlier today</span>${t.past.map((x,i)=>{ const R=x.exit!=null? x.side*(x.exit-x.entry)/(RULES.STOP_ATR*t.atr):null;
+      return html`<div key=${i}>#${x.n||i+1} ${x.kind}${x.upgraded?' (upgraded)':''} ${x.side>0?'call':'put'} ${hm(x.entryMin)} @ ${f2(x.entry)} → ${x.exit!=null?({stop:'stopped',target:'target',flat:'flat'}[x.reason]||'closed')+' '+hm(x.exitMin)+' · ':''}<span className=${(R??0)>=0?'up':'dn'}>${R!=null?(R>=0?'+':'')+R.toFixed(2)+'R':''}</span>${x.optPct!=null?' · option '+pct(x.optPct):''}</div>`; })}</div>`}
+    ${full && a && html`<${MiniChart} a=${a} sc=${sc} trade=${t.trade || (fiveOpen?t.five:null) || t.shadow || t.five} side=${t.trade?t.trade.side:(t.five?t.five.side:(t.shadow?t.shadow.side:side))}/>`}
+    ${full && bt && html`<div className="note num">Backtest, 8:45–9:00 window: ${bt[0]} trades/yr · win ${bt[1].toFixed(0)}% · ${pct(bt[2])} per trade · profit factor ${bt[3].toFixed(2)}</div>`}
+  </article>`;
+}
+
+/* ======================= Today's plays: every play in one list ======================= */
+const TIER_CLS = {'GO IN':'go','5-MIN':'five','TECH GO':'tech'};
+function playMoney(t, x, budget){
+  const a=t.a; const prem=x.premEntry; if(!(prem>0)) return {n:null, pnl:null, est:true};
+  const n = x.contracts || sizeBudget({mid:prem}, x.budget||budget).n;
+  const ct = x.contract || t.contract; let v=null, est=true;
+  if(x.exit!=null){ if(x.premExit>0){ v=x.premExit; est=!!(ct&&ct.est); } else if(ct){ v=project({...ct, mid:prem}, x.side*(x.exit-x.entry), (x.exitMin-x.entryMin)/390); } }
+  else if(x.liveMid>0){ v=x.liveMid; est=false; }
+  else if(ct && a){ v=project({...ct, mid:prem}, x.side*(a.price-x.entry), Math.max(0,a.lastMin-x.entryMin)/390); }
+  return {n, pnl: v!=null ? Math.round(n*(v-prem)*100) : null, est, opt: v};
+}
+function gatherPlays(T){
+  const out=[];
+  for(const sym of ALL){ const t=T[sym]; if(!t || !t.a) continue;
+    const add=(x,tier,extra)=>{ if(x) out.push({sym, t, x, tier, ...(extra||{})}); };
+    for(const p of (t.past||[])) add(p, p.kind, {upgraded:p.upgraded});
+    add(t.trade,'GO IN'); add(t.shadow,'TECH GO',{upgraded: !!t.trade && !!t.shadow}); add(t.five,'5-MIN');
+  }
+  return out;
+}
+function TodayPlays({T, budget, mode}){
+  const all = gatherPlays(T);
+  const plays = all.filter(p=>!(p.tier==='TECH GO' && p.upgraded));   // a TECH GO that became GO IN shows once, as GO IN
+  const rows = plays.map(p=>{ const a=p.t.a, x=p.x, atr=p.t.atr||1; const open=x.exit==null;
+    const px = open ? a.price : x.exit; const R = x.side*(px-x.entry)/(RULES.STOP_ATR*atr);
+    const m = playMoney(p.t, x, budget);
+    const tp1 = x.entry + x.side*RULES.STOP_ATR*atr;
+    const next = open ? ((x.maxR||0)>=1 ? 'target '+f2(x.tp)+' · stop '+f2(x.stop) : 'TP1 '+f2(tp1)+' · stop '+f2(x.stop)) : '';
+    const status = open ? (R<=-0.7?'NEAR STOP':(R>=2.4?'NEAR TARGET':'OPEN')) : ({stop:'STOPPED',target:'TARGET ✓',flat:'FLAT 2:40'}[x.reason]||'CLOSED');
+    return {...p, open, px, R, m, next, status, scls: open?'open':(x.reason||'flat')}; })
+    .sort((a,b)=> (a.open!==b.open) ? (a.open?-1:1) : (b.x.entryMin-a.x.entryMin));
+  const sum = (f)=>{ const g=rows.filter(f); const v=g.filter(r=>r.m.pnl!=null).reduce((s,r)=>s+r.m.pnl,0); return {n:g.length, v}; };
+  const money = v => (v>=0?'+$':'−$')+Math.abs(Math.round(v)).toLocaleString('en-US');
+  const jump = s=>{ const el=document.getElementById('card-'+s); if(el) el.scrollIntoView({behavior:'smooth',block:'start'}); };
+  const tot = sum(()=>true), openN = rows.filter(r=>r.open).length;
+  return html`<section className="panel plays" aria-label="Today's plays">
+    <div className="row"><h2>Today's plays</h2>
+      <div className="ptop">
+        <span className="ptot">${openN} open · ${rows.length-openN} closed</span>
+        ${['GO IN','5-MIN','TECH GO'].map(k=>{ const s=sum(r=>r.tier===k); return s.n? html`<span key=${k} className="ptot"><span className=${'ptype '+TIER_CLS[k]}>${k}</span> ${s.n} · <b className=${s.v>=0?'up':'dn'}>${money(s.v)}</b></span>` : null; })}
+      </div></div>
+    ${rows.length===0 ? html`<div className="pempty">${mode==='live'?'No plays yet today. GO IN, 5-MIN and TECH GO plays show up here the moment they fire, with live P&L, and stay here after they close.':'No plays yet. Press Play or Finish day.'}</div>` :
+    html`<div className="tbl"><table className="ptab">
+      <thead><tr><th>Ticker</th><th>Play</th><th>Side</th><th>In</th><th>Entry</th><th>Now / exit</th><th>Status</th><th>Next level</th><th>Contracts</th><th>$ P&L</th></tr></thead>
+      <tbody>${rows.map((r,i)=>html`<tr key=${r.sym+r.tier+(r.x.n||1)+i} className=${'prow'+(r.open?' open':'')} onClick=${()=>jump(r.sym)} title=${'Show '+r.sym+' card'}>
+        <td className="psym">${r.sym}${PRIMARY.includes(r.sym)?html`<span className="note"> ✓</span>`:''}</td>
+        <td style=${{textAlign:'left'}}><span className=${'ptype '+TIER_CLS[r.tier]}>${r.tier}</span>${(r.x.n||1)>1?html`<span className="note"> #${r.x.n}</span>`:''}</td>
+        <td className=${r.x.side>0?'up':'dn'} style=${{fontFamily:'var(--f-display)',fontWeight:700}}>${r.x.side>0?'CALL':'PUT'}</td>
+        <td>${hm(r.x.entryMin)}</td><td>${f2(r.x.entry)}</td>
+        <td>${f2(r.px)}${!r.open?html`<span className="note"> ${hm(r.x.exitMin)}</span>`:''}</td>
+        <td className=${'pstat '+r.scls}>${r.status} <span className=${'num '+(r.R>=0?'up':'dn')} style=${{fontFamily:'var(--f-mono)',fontWeight:500,letterSpacing:0}}>${(r.R>=0?'+':'')+r.R.toFixed(1)}R</span></td>
+        <td className="note">${r.next||'–'}</td>
+        <td>${r.m.n??'–'}</td>
+        <td className=${'pmoney '+((r.m.pnl??0)>=0?'up':'dn')}>${r.m.pnl==null?'–':money(r.m.pnl)}${r.m.pnl!=null&&r.m.est?html`<span className="note"> est</span>`:''}</td></tr>`)}</tbody>
+    </table></div>`}
+    <div className="note">Open plays on top. Tap a row to jump to its card. P&L uses the option mid and your Max $ per play; "est" means the option price is modeled, not quoted. R = move measured in stop distances (stop is −1R, TP1 +1R, target +3R).</div>
+  </section>`;
+}
+
+const BTGOOD = s => { const r=BT11.win[s]; return r ? (r[3]>=1.2?'good':(r[3]<0.8?'bad':'mid')) : 'mid'; };
+function ladderRows(T){
+  return ALL.map(sym=>{ const t=T[sym]; if(!t||!t.a) return {sym, g:9, k:[], t};
+    const a=t.a, sc=t.sc, tr=t.trade, atr=t.atr||1; const ver=PRIMARY.includes(sym)?0:1;
+    const f5 = t.five && t.five.exit==null ? t.five : null;
+    const side = tr && tr.exit==null ? tr.side : (f5 ? f5.side : (tr? tr.side : (sc?sc.side:1)));
+    const pDir = t.pUp==null?0:(side>0?t.pUp:1-t.pUp);
+    const strength = Math.max(0,Math.abs(a.flowPct)-RULES.FLOW_PCT) + Math.max(0,pDir-RULES.JEV_MIN);
+    const dist = sc && a.orReady ? Math.max(0, side>0 ? (sc.lvl-a.price)/atr : (a.price-sc.lvl)/atr) : null;
+    const req = sc ? (sc.L.flow?1:0)+(sc.L.jev?1:0) : 0;
+    let g, k;
+    if(tr && tr.exit==null){ g=0; k=[ver, tr.prime?0:1, -strength]; }
+    else if(f5){ g=0.25; k=[ver, f5.prime?0:1, -strength]; }
+    else if(!tr && t.shadow && t.shadow.exit==null){ g=0.5; k=[ver, t.shadow.prime?0:1, -strength]; }
+    else if(!tr && sc && (req>=1 || sc.score>=60) && !a.premarket && a.lastMin<=MON_END){ g=1; k=[-req, dist??9, -sc.score, ver]; }
+    else if(tr){ g=3; k=[ver]; }
+    else { g=2; k=[-(sc?sc.score:0), ver]; }
+    return {sym, g, k, t, side, dist, req, strength};
+  }).sort((x,y)=>{ if(x.g!==y.g) return x.g-y.g; for(let i=0;i<Math.max(x.k.length,y.k.length);i++){ const d=(x.k[i]??0)-(y.k[i]??0); if(d) return d; } return 0; });
+}
+function cardOrder(T){
+  const rows=ladderRows(T); const rank=r=> r.g<=1 ? rows.indexOf(r) : 100+ALL.indexOf(r.sym)+(r.g===3?50:0);
+  return rows.slice().sort((x,y)=>rank(x)-rank(y)).map(r=>r.sym);
+}
+function Ladder({T, flash}){
+  const [open,setOpen]=useState(()=>{ try{ return localStorage.getItem('ce-ladder')!=='closed'; }catch(e){ return true; } });
+  useEffect(()=>{ try{ localStorage.setItem('ce-ladder', open?'open':'closed'); }catch(e){} },[open]);
+  const rows=ladderRows(T); const go=rows.filter(r=>r.g===0).length;
+  const jump=s=>{ const el=document.getElementById('card-'+s); if(el) el.scrollIntoView({behavior:'smooth',block:'start'}); };
+  return html`<aside className=${'ladder'+(open?'':' min')} aria-label="Priority ladder">
+    <button className="lhead" onClick=${()=>setOpen(o=>!o)} aria-expanded=${open}>
+      <span>Priority ladder</span><span className=${go?'lgo':(rows.some(r=>r.g===0.5)?'ltech':'')}>${go?go+' GO IN':'no GO yet'}${rows.some(r=>r.g===0.25)?' · '+rows.filter(r=>r.g===0.25).length+' 5-MIN':''}${rows.some(r=>r.g===0.5)?' · '+rows.filter(r=>r.g===0.5).length+' TECH':''}</span><span aria-hidden="true">${open?'▾':'▴'}</span></button>
+    ${open && html`<div className="lbody">${rows.map((r,i)=>{ const t=r.t; const sc=t&&t.sc; const tr=t&&t.trade; const st=t&&t.status;
+      const label = t&&t.lastDay ? 'closed · last '+f2(t.a?(t.a.ah?t.a.ah.price:t.a.price):null) : !t||!t.a ? (t&&t.err?'no data':(t&&t.noBars?'no bars yet':'loading')) : (r.g===0.25) ? '5-MIN '+hm(t.five.entryMin) : (!tr && t.shadow && t.shadow.exit==null) ?'TECH '+hm(t.shadow.techAt?ctParts(t.shadow.techAt).min:t.shadow.entryMin) : tr ? (tr.exit==null?'GO '+(tr.goAt?hms(tr.goAt):hm(tr.entryMin)):({stop:'stopped',target:'target',flat:'flat 2:40'}[tr.reason]||'closed')) : (r.g===1 ? (r.dist===0?'at trigger':(r.dist!=null?r.dist.toFixed(2)+' ATR away':'close')) : (t.a.premarket?'premarket':(t.a.lastMin>MON_END?'no trade':'scanning')));
+      return html`<button key=${r.sym} className=${'lrow g'+String(r.g).replace('.','')+((flash[r.sym]||0)>Date.now()?' flash':'')} onClick=${()=>jump(r.sym)} title=${'Jump to '+r.sym}>
+        <span className="lrank num">${i+1}</span>
+        <span className="lsym">${r.sym}${PRIMARY.includes(r.sym)?html`<i className="lver">✓</i>`:''}<i className=${'lbt '+BTGOOD(r.sym)} title="Backtest track record"></i></span>
+        <span className=${'lside '+(r.side>0?'up':'dn')}>${t&&t.a?(r.side>0?'C':'P'):''}</span>
+        <span className="lscore num">${sc?sc.score:'–'}</span>
+        <span className="ldots">${sc?[['B',sc.L.breakout],['V',sc.L.flow],['J',sc.L.jev],['S',sc.L.spread]].map(([k,on])=>html`<i key=${k} className=${on?'on':''}>${k}</i>`):''}</span>
+        <span className=${'lstat'+(tr&&tr.exit==null?' live':(r.g===0.25?' five':(!tr&&t&&t.shadow&&t.shadow.exit==null?' tech':'')))}>${label}</span>
+      </button>`; })}
+      <div className="note lfoot">Order: GO IN (verified, prime window, strongest volume + Jev) → 5-MIN (5-minute candle closed beyond the trigger) → TECH GO (math passed, Jev not yet) → closest to firing → by score. Dot = backtest record (green held up, red didn't).</div>
+    </div>`}
+  </aside>`;
+}
+
+/* ======================= Clock ======================= */
+function dateLabel(d){ if(!d) return ''; return new Date(d+'T12:00:00Z').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',timeZone:'UTC'}); }
+function prevWeekday(d){ let x=shiftDays(d,-1); while([0,6].includes(new Date(x+'T12:00:00Z').getUTCDay())) x=shiftDays(x,-1); return x; }
+function Clock({mode, simMin, replayDate}){
+  const [,setT]=useState(0);
+  useEffect(()=>{ if(mode!=='live') return; const id=setInterval(()=>setT(x=>x+1),1000); return ()=>clearInterval(id); },[mode]);
+  if(mode==='live') return html`<span className="chip num clock">${new Intl.DateTimeFormat('en-US',{timeZone:'America/Chicago',weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',second:'2-digit'}).format(new Date())} CT</span>`;
+  return html`<span className="chip num clock replay">${mode==='replay'?'REPLAY · '+(replayDate?dateLabel(replayDate):'pick a day'):'SIMULATED DAY'} · ${hm(simMin)} CT</span>`;
+}
+
+/* ======================= Day scorecard (simulation and replay) ======================= */
+function scoreRows(T, budget, realOpt){
+  const out=[];
+  for(const sym of ALL){ const t=T[sym]; if(!t) continue; const atr=t.atr||1;
+    const mk=(tier, x, c, prem, extra)=>{ if(!x) return;
+      const done=x.exit!=null; const px=done?x.exit:(t.a?t.a.price:x.entry);
+      const r=x.side*(px-x.entry)/(RULES.STOP_ATR*atr); const stockPct=x.side*(px/x.entry-1)*100;
+      let estPct=null; if(c && prem){ const v=project({...c, mid:prem}, x.side*(px-x.entry), ((done?x.exitMin:(t.a?t.a.lastMin:x.entryMin))-x.entryMin)/390); estPct=(v/prem-1)*100; }
+      const z = prem ? sizeBudget({mid:prem}, budget) : null; const n = (extra&&extra.contracts) || (z?z.n:1);
+      const ro = realOpt[sym+'|'+tier+'|'+(x.n||1)];
+      const optPct = ro && ro.pct!=null ? ro.pct : estPct;
+      const dollars = ro && ro.pct!=null ? ro.n*(ro.p1-ro.p0)*100 : (prem&&estPct!=null ? n*prem*estPct : null);
+      const fadePct = x.fade ? x.fade.optPct : (x.fade===null ? optPct : null);
+      out.push({fadePct, fadeMin: x.fade?x.fade.min:null, sym, tier, n:x.n||1, side:x.side, entryMin:x.entryMin, entry:x.entry, exit:done?x.exit:null, exitMin:x.exitMin, reason:done?x.reason:'holding', r, stockPct, optPct, real:!!(ro&&ro.pct!=null), ro, dollars, prime: x.entryMin<=RULES.WIN_END, upgraded: tier==='TECH GO' && (extra&&extra.upgraded!=null ? extra.upgraded : !!t.trade)}); };
+    for(const p of (t.past||[])) mk(p.kind, p, p.contract||t.contract, p.premEntry, {contracts:p.contracts, upgraded:!!p.upgraded});
+    if(t.trade) mk('GO IN', t.trade, t.contract, t.trade.premEntry, {contracts:t.trade.contracts});
+    if(t.shadow) mk('TECH GO', t.shadow, t.shadow.contract, t.shadow.premEntry, null);
+    if(t.five) mk('5-MIN', t.five, t.five.contract, t.five.premEntry, {contracts:t.five.contracts});
+  }
+  return out.sort((a,b)=>a.entryMin-b.entryMin);
+}
+function Scorecard({T, budget, realOpt, mode, done}){
+  const rows=scoreRows(T,budget,realOpt);
+  const grp=(f)=>{ const g=rows.filter(f); const c=g.filter(r=>r.exit!=null && r.optPct!=null); const w=c.filter(r=>r.optPct>0);
+    const usd=c.reduce((a,r)=>a+(r.dollars||0),0); const cf=c.filter(r=>r.fadePct!=null);
+    return {n:g.length, closed:c.length, win:c.length?Math.round(100*w.length/c.length):null, avg:c.length?c.reduce((a,r)=>a+r.optPct,0)/c.length:null, favg: cf.length?cf.reduce((a,r)=>a+r.fadePct,0)/cf.length:null, usd}; };
+  const lines=[['GO IN (Jev agreed)',r=>r.tier==='GO IN'],['5-MIN (5-min candle close)',r=>r.tier==='5-MIN'],['5-MIN · NVDA + TSLA',r=>r.tier==='5-MIN'&&PRIMARY.includes(r.sym)],['TECH GO (math only)',r=>r.tier==='TECH GO'],['GO IN · prime 8:45–9:00',r=>r.tier==='GO IN'&&r.prime],['GO IN · after 9:00',r=>r.tier==='GO IN'&&!r.prime],['GO IN · NVDA + TSLA',r=>r.tier==='GO IN'&&PRIMARY.includes(r.sym)]];
+  const money=v=>v==null?'–':(v>=0?'+$':'−$')+Math.abs(Math.round(v)).toLocaleString('en-US');
+  return html`<section className="panel" id="scorecard">
+    <div className="row"><h2>Day scorecard</h2><span className="note">${mode==='replay'?'Real prices for that day. Option results use real contract trades where available, otherwise estimates.':'Simulated prices. Option results are estimates.'} Never written to the paper log.</span></div>
+    ${!done && html`<div className="note">The day is still playing: open signals show their result so far. Final numbers appear at 2:40.</div>`}
+    <div className="tbl"><table><thead><tr><th>Group</th><th>Signals</th><th>Closed</th><th>Win rate</th><th>Avg option (hold)</th><th>Avg (fade exit)</th><th>$ at your budget</th></tr></thead>
+      <tbody>${lines.map(([l,f])=>{ const g=grp(f); return html`<tr key=${l}><td style=${{fontFamily:'var(--f-body)'}}>${l}</td><td>${g.n}</td><td>${g.closed}</td><td>${g.win==null?'–':g.win+'%'}</td><td className=${(g.avg??0)>=0?'up':'dn'}>${g.avg==null?'–':pct(g.avg)}</td><td className=${(g.favg??0)>=0?'up':'dn'}>${g.favg==null?'–':pct(g.favg)}</td><td className=${g.usd>=0?'up':'dn'}>${g.closed?money(g.usd):'–'}</td></tr>`; })}</tbody></table></div>
+    <div className="tbl"><table><thead><tr><th>Time</th><th>Ticker</th><th>Signal</th><th>Side</th><th>Entry</th><th>Exit</th><th>Result</th><th>Stock</th><th>R</th><th>Option</th><th>Fade exit</th><th>$</th></tr></thead>
+      <tbody>${rows.length===0? html`<tr><td colSpan="12" style=${{fontFamily:'var(--f-body)',color:'var(--dim)',textAlign:'left'}}>No signals yet${done?' that day: nothing passed the gates.':'.'}</td></tr>` :
+        rows.map(r=>html`<tr key=${r.sym+r.tier+r.n}><td>${hm(r.entryMin)}</td><td>${r.sym}${PRIMARY.includes(r.sym)?' ✓':''}</td>
+          <td className=${r.tier==='GO IN'?'up':(r.tier==='5-MIN'?'five':'amb')}>${r.tier}${r.n>1?' #'+r.n:''}${r.upgraded?' → GO':''}</td><td>${r.side>0?'call':'put'}</td><td>${f2(r.entry)}</td>
+          <td>${r.exit!=null?f2(r.exit)+' · '+hm(r.exitMin):'holding'}</td>
+          <td className=${r.reason==='target'?'up':(r.reason==='stop'?'dn':'')}>${({target:'target hit',stop:'stopped',flat:'flat 2:40',holding:'holding'})[r.reason]||r.reason}</td>
+          <td className=${r.stockPct>=0?'up':'dn'}>${pct(r.stockPct,2)}</td><td className=${r.r>=0?'up':'dn'}>${(r.r>=0?'+':'')+r.r.toFixed(2)}R</td>
+          <td className=${(r.optPct??0)>=0?'up':'dn'}>${r.optPct==null?'–':pct(r.optPct)}${r.optPct!=null?html`<span className="note">${r.real?' real':' est'}</span>`:''}</td>
+          <td className=${(r.fadePct??0)>=0?'up':'dn'}>${r.fadeMin!=null?pct(r.fadePct)+' · '+hm(r.fadeMin):(r.fadePct!=null?'no fade':'–')}</td>
+          <td className=${(r.dollars??0)>=0?'up':'dn'}>${money(r.dollars)}</td></tr>`)}</tbody></table></div>
+    ${rows.some(r=>r.ro&&r.ro.ticker) && html`<div className="note num">Contracts priced: ${rows.filter(r=>r.ro&&r.ro.ticker).map(r=>r.sym+' '+r.ro.ticker.replace('O:','')+(r.ro.pct!=null?' $'+f2(r.ro.p0)+'→$'+f2(r.ro.p1):' (no trades)')).join(' · ')}</div>`}
+  </section>`;
+}
+
+/* ======================= Real account (Webull, read-only) ======================= */
+function unwrapPayload(r){
+  let p = r && r.payload!==undefined ? r.payload : (r && r.structuredContent);
+  if(typeof p==='string'){ try{ p=JSON.parse(p); }catch(e){} }
+  if(p && !Array.isArray(p) && typeof p==='object'){ for(const k of ['result','data','orders','items','accounts']) if(Array.isArray(p[k])) return p[k]; }
+  return p;
+}
+// Pair Webull option fills into round trips (FIFO per contract)
+function roundTrips(combos){
+  const fills=[];
+  for(const c of combos||[]) for(const o of (c.orders||[])){
+    if(o.status!=='FILLED' || o.instrument_type!=='OPTION') continue; const leg=(o.legs||[])[0]; if(!leg) continue;
+    const fees=(o.fees||[]).reduce((a,f)=>a+(+f.actual_value||0),0);
+    fills.push({id:o.order_id, sym:o.symbol||leg.symbol, type:(leg.option_type||'').toLowerCase(), strike:+leg.strike_price, expiry:leg.option_expire_date,
+      side:o.side, qty:+o.filled_quantity||+leg.quantity||0, px:+o.filled_price, t:+o.filled_time||Date.parse(o.filled_time_at), fees, mult:+leg.option_contract_multiplier||100});
+  }
+  fills.sort((a,b)=>a.t-b.t);
+  const open={}, trips=[];
+  for(const f of fills){ const k=f.sym+'|'+f.type+'|'+f.strike+'|'+f.expiry;
+    if(f.side==='BUY'){ (open[k]=open[k]||[]).push({...f, left:f.qty}); continue; }
+    let q=f.qty; const feePer=f.fees/(f.qty||1);
+    while(q>0 && open[k] && open[k].length){ const b=open[k][0]; const n=Math.min(q,b.left);
+      const fees=b.fees*(n/b.qty)+feePer*n;
+      trips.push({id:b.id+'-'+f.id+(n!==b.qty?'-'+n:''), sym:f.sym, type:f.type, strike:f.strike, expiry:f.expiry, qty:n, openTime:b.t, closeTime:f.t, entryPx:b.px, exitPx:f.px,
+        fees:+fees.toFixed(2), pl:+(((f.px-b.px)*n*f.mult)-fees).toFixed(2), plPct:+((f.px/b.px-1)*100).toFixed(2), status:'closed'});
+      b.left-=n; q-=n; if(b.left<=0) open[k].shift(); }
+  }
+  for(const k in open) for(const b of open[k]) if(b.left>0) trips.push({id:b.id+'-open', sym:b.sym, type:b.type, strike:b.strike, expiry:b.expiry, qty:b.left, openTime:b.t, closeTime:null, entryPx:b.px, exitPx:null, fees:+b.fees.toFixed(2), pl:null, plPct:null, status:'open'});
+  return trips;
+}
+function matchSignal(tr, paper){
+  const d=ctParts(tr.openTime).date, side = tr.type==='call'?1:-1;
+  const sigs = paper.filter(p=>p.date===d && p.sym===tr.sym && p.side===side && (p.source==='live' || p.source==='five'));
+  if(!sigs.length) return {tag:'off-plan', cls:'dn'};
+  const at = p => p.goAt || p.fiveAt || null;
+  const sig = sigs.slice().sort((x,y)=>Math.abs(tr.openTime-(at(x)||0))-Math.abs(tr.openTime-(at(y)||0)))[0];
+  const nm = sig.source==='five' ? '5-MIN' : 'GO IN';
+  const goMs = at(sig); if(!goMs) return {tag:'on '+nm, cls:'up'};
+  const lag = Math.round((tr.openTime-goMs)/60000);
+  return lag<=5 ? {tag:'on '+nm+(lag>0?' +'+lag+'m':''), cls:'up'} : {tag:'late '+lag+'m after '+nm, cls:''};
+}
+function RealLog({rows, paper, onSync, syncMsg, canSync}){
+  const closed=rows.filter(r=>r.status==='closed' && Number.isFinite(r.pl));
+  const wins=closed.filter(r=>r.pl>0), losses=closed.filter(r=>r.pl<=0);
+  const net=closed.reduce((a,r)=>a+r.pl,0), fees=rows.reduce((a,r)=>a+(r.fees||0),0);
+  const gw=wins.reduce((a,r)=>a+r.pl,0), gl=-losses.reduce((a,r)=>a+r.pl,0);
+  const days=new Set(closed.map(r=>ctParts(r.openTime).date)).size;
+  const hold=closed.length? closed.reduce((a,r)=>a+(r.closeTime-r.openTime),0)/closed.length/60000 : null;
+  const tags=closed.map(r=>matchSignal(r,paper).tag); const onSig=tags.filter(x=>x.startsWith('on ')).length;
+  const money = v => v==null?'–':(v>=0?'+$':'−$')+Math.abs(v).toLocaleString('en-US',{maximumFractionDigits:0});
+  const best=closed.length?Math.max(...closed.map(r=>r.pl)):null, worst=closed.length?Math.min(...closed.map(r=>r.pl)):null;
+  return html`<section className="panel" id="real">
+    <div className="row"><h2>Real account · Webull</h2>
+      <span className="row" style=${{gap:'8px'}}><span className="note">${syncMsg}</span><button className="primary" onClick=${onSync} disabled=${!canSync}>Sync from Webull</button></span></div>
+    <div className="note">Your actual option fills, read-only from Webull (nothing is ever placed from here). Kept apart from the paper log so the strategy test and your own execution can be compared.</div>
+    <div className="base">
+      <div className="stat"><div className="k">Round trips</div><div className="v">${closed.length}${rows.length>closed.length?html`<span className="note"> + ${rows.length-closed.length} open</span>`:''}</div></div>
+      <div className="stat"><div className="k">Win rate</div><div className="v">${closed.length?(100*wins.length/closed.length).toFixed(0)+'%':'–'}</div></div>
+      <div className="stat"><div className="k">Net $ P&L (after fees)</div><div className=${'v '+(net>=0?'up':'dn')}>${closed.length?money(net):'–'}</div></div>
+      <div className="stat"><div className="k">Profit factor</div><div className="v">${gl>0?(gw/gl).toFixed(2):(gw>0?'∞':'–')}</div></div>
+      <div className="stat"><div className="k">Best / worst trade</div><div className="v small">${money(best)} / ${money(worst)}</div></div>
+      <div className="stat"><div className="k">Fees paid</div><div className="v small">$${fees.toFixed(2)}</div></div>
+    </div>
+    <div className="lbl">Temperament</div>
+    <div className="base">
+      <div className="stat"><div className="k">Took a board signal</div><div className="v small">${closed.length?onSig+' of '+closed.length+' trades':'–'}</div></div>
+      <div className="stat"><div className="k">Avg hold</div><div className="v small">${hold==null?'–':(hold<60?hold.toFixed(0)+' min':(hold/60).toFixed(1)+' h')}</div></div>
+      <div className="stat"><div className="k">Trades per day</div><div className="v small">${days?(closed.length/days).toFixed(1)+' over '+days+' day'+(days>1?'s':''):'–'}</div></div>
+    </div>
+    <div className="tbl"><table>
+      <thead><tr><th>Date</th><th>Contract</th><th>Qty</th><th>In</th><th>Out</th><th>Hold</th><th>Option</th><th>$ P&L</th><th>vs board</th></tr></thead>
+      <tbody>${rows.length===0? html`<tr><td colSpan="9" style=${{fontFamily:'var(--f-body)',color:'var(--dim)',textAlign:'left'}}>No real trades yet. Press "Sync from Webull" after a session.</td></tr>` :
+        rows.slice().sort((a,b)=>b.openTime-a.openTime).map(r=>{ const m=r.status==='closed'?matchSignal(r,paper):{tag:'open',cls:''}; return html`<tr key=${r.id}>
+          <td>${ctParts(r.openTime).date}</td><td style=${{color:'var(--pink)'}}>${r.sym} ${expTxt(r.expiry)} $${f2(r.strike)} ${r.type==='call'?'C':'P'}</td><td>${r.qty}</td>
+          <td>$${f2(r.entryPx)} · ${hm(ctParts(r.openTime).min)}</td><td>${r.exitPx!=null?'$'+f2(r.exitPx)+' · '+hm(ctParts(r.closeTime).min):'open'}</td>
+          <td>${r.closeTime?Math.round((r.closeTime-r.openTime)/60000)+'m':'–'}</td>
+          <td className=${(r.plPct??0)>=0?'up':'dn'}>${r.plPct!=null?pct(r.plPct):'–'}</td><td className=${(r.pl??0)>=0?'up':'dn'}>${money(r.pl)}</td>
+          <td className=${m.cls}>${m.tag}</td></tr>`; })}</tbody>
+    </table></div>
+  </section>`;
+}
+
+function Curve({rows}){
+  const Wd=600,H=90; if(rows.length<2) return html`<div className="note">The curve appears after two closed trades.</div>`;
+  let cum=0; const pts=rows.map((r,i)=>{cum+=r.optPct||0; return [i,cum];});
+  const mn=Math.min(0,...pts.map(p=>p[1])), mx=Math.max(0,...pts.map(p=>p[1])); const sx=i=>8+(i/(pts.length-1))*(Wd-16); const sy=v=>H-8-((v-mn)/((mx-mn)||1))*(H-16);
+  return html`<svg className="curve" viewBox=${'0 0 '+Wd+' '+H} preserveAspectRatio="none" role="img" aria-label="Cumulative option return across paper trades">
+    <line x1="0" x2=${Wd} y1=${sy(0)} y2=${sy(0)} stroke="var(--line-2)" strokeDasharray="4 4"/>
+    <polyline points=${pts.map(p=>sx(p[0])+','+sy(p[1])).join(' ')} fill="none" stroke=${cum>=0?'var(--go)':'var(--warn)'} strokeWidth="2" vectorEffect="non-scaling-stroke"/>
+    <circle cx=${sx(pts.length-1)} cy=${sy(cum)} r="3.5" fill=${cum>=0?'var(--go)':'var(--warn)'}/></svg>`;
+}
+
+/* ======================= Paper log ======================= */
+/* Dollar P&L for any paper row: uses stored contracts, else sizes the play with the budget the same way GO IN is sized */
+function paperNorm(r, budget, exitRule){
+  const fadeOn = exitRule==='fade' && r.fadeDone && r.fade && Number.isFinite(r.fade.optPct);
+  const p0 = r.premEntry, p1 = fadeOn ? r.fade.prem : r.premExit;
+  const n = r.contracts || (p0>0 ? sizeBudget({mid:p0}, r.budget||budget).n : null);
+  const pctv = fadeOn ? r.fade.optPct : r.optPct;
+  const usd = (n && p0>0 && p1>0) ? Math.round((p1-p0)*100*n) : (r.source==='manual' && Number.isFinite(r.dollarPL) ? r.dollarPL : null);
+  return {...r, contracts:n, optPct:pctv, dollarPL:usd, premExit: fadeOn ? r.fade.prem : r.premExit};
+}
+const usdTxt = v => (v>=0?'+$':'−$')+Math.abs(v).toLocaleString('en-US');
+
+function PnlSummary({rows, budget}){
+  const [exitRule,setExitRule]=useState('hold');
+  const today = ctParts(Date.now()).date;
+  const d0 = new Date(today+'T12:00:00Z'); const monday = new Date(d0.getTime()-((d0.getUTCDay()+6)%7)*864e5).toISOString().slice(0,10);
+  const sig = rows.filter(r=>r.source!=='manual').map(r=>paperNorm(r,budget,exitRule));
+  const key = r => r.date+'-'+r.sym+'-'+(r.n||1);
+  const tech = sig.filter(r=>r.source==='shadow'), go = sig.filter(r=>r.source==='live'), five = sig.filter(r=>r.source==='five');
+  const techKeys = new Set(tech.map(key));
+  const groups = [
+    ['GO IN plays', '1-min entry, Jev confirmed', go],
+    ['5-MIN plays', '5-min candle close, Jev not required', five],
+    ['TECH GO plays', '1-min entry, Jev not confirmed', tech],
+    ['GO IN + TECH GO', 'TECH GO entry when it came first, no double counting', tech.concat(go.filter(r=>!techKeys.has(key(r))))],
+  ];
+  const periods = [['Today', r=>r.date===today], ['This week', r=>r.date>=monday], ['All time', r=>true]];
+  const cell = (list) => {
+    const closed = list.filter(r=>r.status==='closed' && Number.isFinite(r.dollarPL));
+    const open = list.filter(r=>r.status==='open').length;
+    const net = closed.reduce((a,r)=>a+r.dollarPL,0);
+    const w = closed.filter(r=>r.dollarPL>0).length, l = closed.length-w;
+    if(!closed.length && !open) return html`<td className="pnl-c"><span className="note">no plays</span></td>`;
+    return html`<td className="pnl-c"><div className=${'pnl-v '+(net>=0?'up':'dn')}>${closed.length?usdTxt(net):'–'}</div><div className="note">${closed.length} closed · ${w}W ${l}L${open?' · '+open+' open':''}</div></td>`;
+  };
+  return html`<section className="panel" aria-label="Paper P&L">
+    <div className="row"><h2>Paper P&L · if you took every play</h2>
+      <div className="tabs">${[['hold','Hold exit (official)'],['fade','Volume-fade exit']].map(([k,l])=>html`<button key=${k} aria-pressed=${exitRule===k} className=${exitRule===k?'on':''} onClick=${()=>setExitRule(k)}>${l}</button>`)}</div></div>
+    <div className="tbl"><table className="pnl-t">
+      <thead><tr><th></th>${periods.map(([p])=>html`<th key=${p}>${p}</th>`)}</tr></thead>
+      <tbody>${groups.map(([name,sub,list])=>html`<tr key=${name}><th scope="row" className="pnl-h">${name}<div className="note">${sub}</div></th>${periods.map(([p,f])=>html`<${React.Fragment} key=${p}>${cell(list.filter(f))}</${React.Fragment}>`)}</tr>`)}</tbody>
+    </table></div>
+    <div className="note">All 11 tickers. Sized by your Max $ per play (${'$'+(+budget).toLocaleString('en-US')}, max 3 contracts, at least 1), filled at the option mid, no commissions. Your own fills are in the Webull log below.</div>
+  </section>`;
+}
+
+function PaperLog({db, rows: allRows, dbState, budget}){
+  const [view,setView]=useState('verified');
+  const pick = (k,r) => k==='shadow' ? r.source==='shadow' : k==='five' ? r.source==='five' : (r.source==='shadow'||r.source==='five') ? false : k==='all' ? true : k==='verified' ? PRIMARY.includes(r.sym) : k==='prime' ? isPrime(r) : !isPrime(r);
+  const [exitRule,setExitRule]=useState('hold');
+  const rows = allRows.filter(r => pick(view,r)).map(r=>paperNorm(r,budget,'hold'));
+  const closed = allRows.filter(r => pick(view,r) && r.status==='closed').map(r=>paperNorm(r,budget,exitRule)).filter(r=>Number.isFinite(r.optPct));
+  const wins = closed.filter(r=>r.optPct>0), losses = closed.filter(r=>r.optPct<=0);
+  const gw = wins.reduce((s,r)=>s+r.optPct,0), gl = -losses.reduce((s,r)=>s+r.optPct,0);
+  const pf = gl>0 ? gw/gl : (gw>0?Infinity:null);
+  const avg = closed.length ? closed.reduce((s,r)=>s+r.optPct,0)/closed.length : null;
+  const first = allRows.filter(r=>r.source!=='shadow').length ? allRows.filter(r=>r.source!=='shadow').map(r=>r.date).sort()[0] : null;
+  const days = first ? Math.floor((Date.now()-new Date(first+'T12:00:00Z').getTime())/864e5) : 0;
+  const weeks = Math.min(6, days/7);
+  const verdict = closed.length<10 ? 'Too few trades to judge yet' : (pf!=null && pf>=1.2 ? 'On track: profit factor at or above 1.2' : 'Below target: profit factor under 1.2');
+  const [form,setForm]=useState({date:ctParts(Date.now()).date, sym:'NVDA', side:'calls', entry:'', exit:'', prem0:'', prem1:'', qty:'', reason:'flat', prime:'yes'});
+  const [msg,setMsg]=useState('');
+  const save = async ()=>{
+    if(!db){ setMsg('The paper log needs the shared store, which is not available in this view.'); return; }
+    const e=+form.entry, x=+form.exit, p0=+form.prem0, p1=+form.prem1, q=Math.floor(+form.qty)||null;
+    if(!(e>0)||!(x>0)){ setMsg('Enter the stock entry and exit prices.'); return; }
+    const side=form.side==='calls'?1:-1;
+    const doc={date:form.date, sym:form.sym, role:roleOf(form.sym), side, entry:e, exit:x, status:'closed', exitReason:form.reason, source:'manual', prime: form.prime==='yes',
+      premEntry:p0>0?p0:null, premExit:p1>0?p1:null, optPct: (p0>0&&p1>0)?(p1/p0-1)*100:null,
+      contracts:q, dollarPL:(q&&p0>0&&p1>0)?Math.round((p1-p0)*100*q):null, stockPct: side*(x/e-1)*100, updatedAt:new Date().toISOString()};
+    try{ await db.collection('paper').doc(form.date+'-'+form.sym+'-m'+Date.now().toString(36)).set(doc); setMsg('Saved '+form.sym+' '+form.date+'.'); }
+    catch(err){ setMsg(err&&err.code==='invalid_argument'?'You can view this log but not edit it.':'Could not save ('+(err&&err.code||'error')+').'); }
+  };
+  const del = async (r)=>{ if(!db) return; try{ await db.collection('paper').doc(r.id).delete(); }catch(e){} };
+  return html`<section className="panel">
+    <div className="row"><h2>6-week paper trading log</h2><span className="note">${dbState}</span></div>
+    <div className="tabs" role="tablist">${[['verified','Verified · NVDA + TSLA'],['all','All 11 tickers'],['prime','Prime 8:45–9:00'],['late','After 9:00'],['five','5-MIN · candle close'],['shadow','TECH GO · Jev not confirmed']].map(([k,l])=>html`<button key=${k} role="tab" aria-selected=${view===k} className=${view===k?'on':''} onClick=${()=>setView(k)}>${l} (${allRows.filter(r=>pick(k,r)).length})</button>`)}</div>
+    <div className="row" style=${{justifyContent:'flex-start',gap:'8px'}}><span className="lbl">Exit rule</span>
+      <div className="tabs">${[['hold','Hold to stop / target / 2:40 (official)'],['fade','Exit on volume fade (candidate)']].map(([k,l])=>html`<button key=${k} aria-pressed=${exitRule===k} className=${exitRule===k?'on':''} onClick=${()=>setExitRule(k)}>${l}</button>`)}</div></div>
+    ${view==='five' && html`<div className="note">5-MIN plays: the 5-minute candle (8:45–8:49, 8:50–8:54 …) closed beyond the trigger with volume delta past ±10%, 8:45 AM–2:00 PM. Same −0.5 ATR stop, +1.5 ATR target and 2:40 flat; Jev is recorded but not required. Backtest (12 months, NVDA + TSLA, 8:45–9:00): 30 trades/yr, 57% wins, +7.1% per trade, profit factor 2.03, against 44 trades, +3.0%, 1.37 for the 1-minute entry. All 11 tickers in the window: profit factor 0.92. Compare this tab with "Verified" and "All 11 tickers" over the 6 weeks before switching entries.</div>`}
+    ${view==='five' && (()=>{ const c=closed; const j=c.filter(r=>r.jevOk), nj=c.filter(r=>!r.jevOk); const av=g=>g.length?pct(g.reduce((s,r)=>s+r.optPct,0)/g.length):'–';
+      return html`<div className="note num">Jev agreed on ${j.length} closed 5-MIN plays (avg ${av(j)}) · did not on ${nj.length} (avg ${av(nj)}) · ${c.filter(r=>r.late).length} found on refresh rather than alerted live.</div>`; })()}
+    ${view==='shadow' && html`<div className="note">TECH GO signals: price, volume and spread passed but Jev was below 65% at that moment (some later upgraded to GO IN). Tracked to stop, target or 2:40 the same way. Compare this tab with "All 11 tickers": if TECH GOs do as well, Jev is only costing trades.</div>`}
+    <div className="base">
+      <div className="stat"><div className="k">Closed trades</div><div className="v">${closed.length}</div></div>
+      <div className="stat"><div className="k">Win rate</div><div className="v">${closed.length?(100*wins.length/closed.length).toFixed(0)+'%':'–'}</div></div>
+      <div className="stat"><div className="k">Avg option return</div><div className=${'v '+(avg>=0?'up':'dn')}>${avg==null?'–':pct(avg)}</div></div>
+      <div className="stat"><div className="k">Profit factor</div><div className="v">${pf==null?'–':(pf===Infinity?'∞':pf.toFixed(2))}</div></div>
+      <div className="stat"><div className="k">Net $ P&L</div><div className=${'v '+(closed.reduce((a,r)=>a+(r.dollarPL||0),0)>=0?'up':'dn')}>${(()=>{ const v=closed.reduce((a,r)=>a+(r.dollarPL||0),0); return (v>=0?'+$':'−$')+Math.abs(v).toLocaleString('en-US'); })()}</div></div>
+      <div className="stat"><div className="k">Verdict</div><div className="v small" style=${{fontFamily:'var(--f-body)'}}>${verdict}</div></div>
+    </div>
+    <div style=${{display:'grid',gap:'4px'}}><div className="row"><span className="lbl">Test progress</span><span className="note num">${weeks.toFixed(1)} of 6 weeks${first?' · started '+first:''}</span></div><div className="prog"><div style=${{width:(weeks/6*100)+'%'}}></div></div></div>
+    <${Curve} rows=${closed.slice().sort((a,b)=>a.date<b.date?-1:1)}/>
+    <div className="tbl"><table>
+      <thead><tr><th>Date</th><th>Ticker</th><th>Window</th><th>Side</th><th>Entry</th><th>Exit</th><th>Why</th><th>Stock</th><th>Premium</th><th>Option</th><th>Fade exit</th><th>Contracts</th><th>$ P&L</th><th>Source</th><th></th></tr></thead>
+      <tbody>${rows.length===0? html`<tr><td colSpan="15" style=${{fontFamily:'var(--f-body)',color:'var(--dim)',textAlign:'left'}}>No paper trades yet. In live mode every GO IN on all 11 tickers is logged here automatically and closed at its stop, target or 2:40 CT. Add your own fills by hand below.</td></tr>` :
+        rows.slice().sort((a,b)=>a.date<b.date?1:-1).map(r=>html`<tr key=${r.id}>
+          <td>${r.date}</td><td>${r.sym}${PRIMARY.includes(r.sym)?' ✓':''}</td><td>${isPrime(r)?'prime':'after 9'}${r.entryMin!=null?' · '+hm(r.entryMin):''}${(r.n||1)>1?' · play #'+r.n:''}</td><td>${r.side>0?'calls':'puts'}</td><td>${f2(r.entry)}</td><td>${r.exit!=null?f2(r.exit):'open'}</td>
+          <td>${r.status==='open'?'holding':(r.exitReason||'')}</td><td className=${(r.stockPct??0)>=0?'up':'dn'}>${r.stockPct!=null?pct(r.stockPct,2):'–'}</td>
+          <td>${r.premEntry?('$'+f2(r.premEntry)+(r.premExit?' → $'+f2(r.premExit):'')):'–'}</td>
+          <td className=${(r.optPct??0)>=0?'up':'dn'}>${r.optPct!=null?pct(r.optPct):'–'}</td>
+          <td className=${r.fade&&r.fade.optPct!=null?(r.fade.optPct>=0?'up':'dn'):''}>${r.fade ? (r.fade.optPct!=null?pct(r.fade.optPct):'') +' · '+hm(r.fade.min) : (r.fadeDone?'no fade':'–')}</td><td>${r.contracts??'–'}</td>
+          <td className=${(r.dollarPL??0)>=0?'up':'dn'}>${r.dollarPL!=null?((r.dollarPL>=0?'+$':'−$')+Math.abs(r.dollarPL).toLocaleString('en-US')):'–'}</td><td className=${r.source==='five'?'five':(r.source==='shadow'?'amb':'')}>${({live:'GO IN',shadow:'TECH GO',five:'5-MIN',manual:'manual'})[r.source]||r.source||''}</td>
+          <td><button className="ghost" onClick=${()=>del(r)} aria-label=${'Delete '+r.sym+' '+r.date}>Delete</button></td></tr>`)}</tbody>
+    </table></div>
+    <div className="form">
+      <label>Date<input id="pf-date" type="date" value=${form.date} onChange=${e=>setForm({...form,date:e.target.value})}/></label>
+      <label>Ticker<select id="pf-sym" value=${form.sym} onChange=${e=>setForm({...form,sym:e.target.value})}>${ALL.map(x=>html`<option key=${x}>${x}</option>`)}</select></label>
+      <label>Side<select id="pf-side" value=${form.side} onChange=${e=>setForm({...form,side:e.target.value})}><option value="calls">calls</option><option value="puts">puts</option></select></label>
+      <label>Stock entry<input id="pf-entry" inputMode="decimal" value=${form.entry} onChange=${e=>setForm({...form,entry:e.target.value})}/></label>
+      <label>Stock exit<input id="pf-exit" inputMode="decimal" value=${form.exit} onChange=${e=>setForm({...form,exit:e.target.value})}/></label>
+      <label>Exit reason<select id="pf-reason" value=${form.reason} onChange=${e=>setForm({...form,reason:e.target.value})}><option value="flat">flat 2:40</option><option value="stop">stop</option><option value="target">target</option><option value="manual">closed early</option></select></label>
+      <label>Window<select id="pf-prime" value=${form.prime} onChange=${e=>setForm({...form,prime:e.target.value})}><option value="yes">prime 8:45–9:00</option><option value="no">after 9:00</option></select></label>
+      <label>Premium paid<input id="pf-p0" inputMode="decimal" value=${form.prem0} onChange=${e=>setForm({...form,prem0:e.target.value})}/></label>
+      <label>Premium at exit<input id="pf-p1" inputMode="decimal" value=${form.prem1} onChange=${e=>setForm({...form,prem1:e.target.value})}/></label>
+      <label>Contracts<input id="pf-qty" inputMode="numeric" value=${form.qty} onChange=${e=>setForm({...form,qty:e.target.value})}/></label>
+      <button className="primary" onClick=${save}>Add trade</button>
+      <span className="note" style=${{gridColumn:'span 2'}}>${msg}</span>
+    </div>
+  </section>`;
+}
+
+/* ======================= App ======================= */
+function App(){
+  const [mode,setMode]=useState('live');               // sim | live
+  const [mcp,setMcp]=useState(null);
+  const [btView,setBtView]=useState('win');
+  const [db,setDb]=useState(null);
+  const [dbState,setDbState]=useState('Connecting to the log…');
+  const [paper,setPaper]=useState([]);
+  const [real,setReal]=useState([]);
+  const [syncMsg,setSyncMsg]=useState('');
+  const [tick,setTick]=useState(0);
+  const [toasts,setToasts]=useState([]);
+  const [liveMsg,setLiveMsg]=useState('');
+  const [busy,setBusy]=useState(false);
+  const [simRun,setSimRun]=useState(false);
+  const [simSpeed,setSimSpeed]=useState(20);           // simulated minutes per second
+  const [simLog,setSimLog]=useState([]);
+  const [replayDate,setReplayDate]=useState(()=>prevWeekday(ctParts(Date.now()).date));
+  const [replayMsg,setReplayMsg]=useState('');
+  const [realOpt,setRealOpt]=useState({});
+  const optPending=useRef({});
+  const [budget,setBudget]=useState(()=>{ try{ const v=+localStorage.getItem('ce-budget'); return v>0?v:1700; }catch(e){ return 1700; } });
+  const budgetRef=useRef(budget); budgetRef.current=budget;
+  const [sound,setSound]=useState(()=>{ try{ return localStorage.getItem('ce-sound')||'off'; }catch(e){ return 'off'; } });
+  const [soundReady,setSoundReady]=useState(false);
+  const [techSound,setTechSound]=useState(()=>{ try{ return localStorage.getItem('ce-techsound')!=='off'; }catch(e){ return true; } });
+  const techSoundRef=useRef(techSound); techSoundRef.current=techSound;
+  useEffect(()=>{ try{ localStorage.setItem('ce-techsound', techSound?'on':'off'); }catch(e){} },[techSound]);
+  const [fiveSound,setFiveSound]=useState(()=>{ try{ return localStorage.getItem('ce-fivesound')!=='off'; }catch(e){ return true; } });
+  const fiveSoundRef=useRef(fiveSound); fiveSoundRef.current=fiveSound;
+  useEffect(()=>{ try{ localStorage.setItem('ce-fivesound', fiveSound?'on':'off'); }catch(e){} },[fiveSound]);
+  const [detail,setDetail]=useState(()=>{ try{ return localStorage.getItem('ce-detail')||'simple'; }catch(e){ return 'simple'; } });
+  useEffect(()=>{ try{ localStorage.setItem('ce-detail', detail); }catch(e){} },[detail]);
+  const [muteUntil,setMuteUntil]=useState(()=>{ try{ return +localStorage.getItem('ce-mute')||0; }catch(e){ return 0; } });
+  useEffect(()=>{ try{ localStorage.setItem('ce-mute', String(muteUntil)); }catch(e){} },[muteUntil]);
+  const muted = muteUntil>Date.now();
+  const soundRef=useRef(sound); soundRef.current = (soundReady && !muted) ? sound : 'off';
+  useEffect(()=>{ try{ localStorage.setItem('ce-sound', sound); }catch(e){} },[sound]);
+  const pickSound = (v)=>{ setSound(v); if(v!=='off'){ const ok=audioOn(); setSoundReady(ok); if(ok){ chaChing(); if(v==='voice') sayGo('NVDA',1); } } };
+  const armSound = ()=>{ const ok=audioOn(); setSoundReady(ok); if(ok) chaChing(); };
+  useEffect(()=>{ try{ localStorage.setItem('ce-budget', String(budget)); }catch(e){} },[budget]);
+  const S = useRef({}); // per-ticker state
+  const sim = useRef(null);
+  const flashUntil = useRef({});
+
+  const toast=(text,kind)=>{ const id=Math.random(); setToasts(x=>[...x,{id,text,kind}].slice(-3)); setTimeout(()=>setToasts(x=>x.filter(z=>z.id!==id)),3200); };
+
+  // capabilities
+  useEffect(()=>{ let off=null;
+    (async()=>{
+      const c = window.claude; if(!c||!c.use){ setDbState('Log unavailable in this view'); return; }
+      c.use('mcp').then(m=>setMcp(m)).catch(()=>{});
+      const d = await c.use('db').catch(()=>null);
+      if(!d){ setDbState('Log unavailable in this view (sign in to claude.ai to keep paper trades)'); return; }
+      setDb(d); setDbState('Saved to this dashboard');
+      off = d.collection('paper').onSnapshot(snap=>{ setPaper(snap.docs.map(x=>({id:x.id,...x.data()}))); }, e=>setDbState('Log stopped updating ('+e.code+')'));
+      const off2 = d.collection('real').onSnapshot(snap=>{ setReal(snap.docs.map(x=>({id:x.id,...x.data()}))); }, ()=>{});
+      const o1=off; off=()=>{ o1&&o1(); off2&&off2(); };
+    })();
+    return ()=>{ if(off) off(); };
+  },[]);
+
+  /* ---------- engine step for one ticker ---------- */
+  const evaluate = useCallback((t, nowMin, persist, persistShadow, persistFive)=>{
+    if(!t.a){ t.status='IDLE'; return; }
+    const a=t.a;
+    const pfOf = k => k==='trade' ? persist : (k==='five' ? persistFive : persistShadow);
+    // Volume-fade flag: first minute after entry where net volume delta is back under +/-5% (before the play's own exit)
+    const fadeCheck = (x, ct, kind)=>{
+      if(!x || x.fade!==undefined || !a.series || !t.atr || a.premarket) return;
+      const pf = pfOf(kind);
+      const q = a.series.find(p=>p.m>x.entryMin && x.side*p.f < RULES.FADE && (x.exitMin==null || p.m<x.exitMin));
+      if(!q){ if(x.exit!=null){ x.fade=null; pf&&pf(t); } return; }
+      const px=a.closeAt(q.m); const R=x.side*(px-x.entry)/(RULES.STOP_ATR*t.atr);
+      let prem=null, real=false;
+      if(x.exit==null && x.liveMid && a.lastMin-q.m<=1 && ct && !ct.est){ prem=x.liveMid; real=true; }
+      else if(ct && x.premEntry){ prem=project({...ct, mid:x.premEntry}, x.side*(px-x.entry), (q.m-x.entryMin)/390); }
+      x.fade={min:q.m, px, R, prem, real, optPct: prem&&x.premEntry ? (prem/x.premEntry-1)*100 : null, at: t.sim?null:Date.now()};
+      if(x.exit==null){
+        flashUntil.current[t.sym]=Date.now()+2600; toast(t.sym+' · '+(kind==='five'?'5-MIN · ':(kind==='shadow'?'TECH GO · ':''))+'VOLUME FADED · fade exit '+f2(px)+' ('+(R>=0?'+':'')+R.toFixed(2)+'R)','flat');
+        if(soundRef.current!=='off'){ fadeTone(); if(soundRef.current==='voice') sayFade(t.sym); }
+      }
+      pf&&pf(t);
+    };
+    fadeCheck(t.trade, t.contract, 'trade');
+    fadeCheck(t.shadow, t.shadow && t.shadow.contract, 'shadow');
+    fadeCheck(t.five, t.five && t.five.contract, 'five');
+    for(const x of [t.trade, t.shadow, t.five]) if(x && x.fade && !(x.ev||[]).some(e=>e.type==='fade')) (x.ev=x.ev||[]).push({m:x.fade.min, type:'fade', R:x.fade.R, px:x.fade.px, msg:'Volume faded under 5%: candidate exit'});
+    // Live play monitor: take-profit levels, give-back, near stop and abnormal candles against the play (alerts only; exits unchanged)
+    const monitor = (x, kind, tier)=>{
+      if(!x || x.exit!=null || a.premarket || !t.atr || !a.series || !a.series.length) return;
+      const R = x.side*(a.price-x.entry)/(RULES.STOP_ATR*t.atr); x.maxR=Math.max(x.maxR||0, R); x.ev=x.ev||[];
+      const has = k => x.ev.some(e=>e.type===k);
+      const tag = tier==='GO IN' ? '' : tier+' · ';
+      const fire = (type, msg, kindT, tone, voice)=>{ x.ev.push({m:a.lastMin, type, R, px:a.price, msg}); toast(t.sym+' · '+tag+msg, kindT); flashUntil.current[t.sym]=Date.now()+2600;
+        if(soundRef.current!=='off'){ tone(); if(soundRef.current==='voice') sayLine(spell(t.sym)+(tier==='5-MIN'?', five minute play':'')+', '+voice); }
+        const r = kind==='trade' ? persistRef.current : (kind==='five' ? persistFiveRef.current : persistShadowRef.current); r&&r(t); };
+      if(R>=1 && !has('tp1')) fire('tp1', 'TAKE PROFIT 1 · +1R at '+f2(a.price)+' · consider selling part', '', tpTone, 'plus one R, consider taking partial profit');
+      if(R>=2 && !has('tp2')) fire('tp2', 'TAKE PROFIT 2 · +2R at '+f2(a.price)+' · consider locking in more', '', tpTone, 'plus two R, consider locking in');
+      if(x.maxR>=1 && R<=0.25 && !has('give')) fire('give', 'GIVING BACK · was +'+x.maxR.toFixed(1)+'R, now '+(R>=0?'+':'')+R.toFixed(2)+'R · consider exit near entry', 'flat', fadeTone, 'giving back gains, consider exit near entry');
+      if(R<=-0.7 && !has('nearstop')) fire('nearstop', 'NEAR STOP · '+R.toFixed(2)+'R · stop '+f2(x.stop), 'stop', fadeTone, 'near stop');
+      const ser=a.series, b=ser[ser.length-1], pb=ser[ser.length-2];
+      if(b && pb && b.m>x.entryMin && ser.length>20){
+        const avgR = ser.reduce((s2,q)=>s2+(q.h-q.l),0)/ser.length, avgV = ser.reduce((s2,q)=>s2+q.v,0)/ser.length;
+        const lastAbn = Math.max(-99, ...x.ev.filter(e=>e.type==='abn').map(e=>e.m));
+        if((b.h-b.l)>=2.5*avgR && b.v>=2*avgV && x.side*(b.c-pb.c)<0 && b.m-lastAbn>=10)
+          fire('abn', 'ABNORMAL CANDLE AGAINST · '+hm(b.m)+' · range '+((b.h-b.l)/avgR).toFixed(1)+'x, volume '+(b.v/avgV).toFixed(1)+'x · consider exit', 'stop', fadeTone, 'abnormal candle against the play, consider exit');
+      }
+    };
+    // Exit alert (sound + voice) for any play
+    const exitAlert = (x, tier, soundOn)=>{
+      const word = {stop:'STOPPED',target:'TARGET HIT',flat:'FLAT 2:40'}[x.reason]||'CLOSED';
+      toast(t.sym+' · '+tier+' '+word+' · '+f2(x.exit), x.reason==='stop'?'stop':(x.reason==='flat'?'flat':(tier==='5-MIN'?'five':(tier==='TECH GO'?'tech':''))));
+      flashUntil.current[t.sym]=Date.now()+2600;
+      if(soundOn && soundRef.current!=='off'){ (x.reason==='target'?tpTone:(x.reason==='stop'?stopTone:fadeTone))();
+        if(soundRef.current==='voice') sayLine(spell(t.sym)+', '+(tier==='5-MIN'?'five minute play':(tier==='TECH GO'?'tech GO':'GO IN'))+', '+({stop:'stopped out',target:'target hit',flat:'flat at two forty'}[x.reason]||'closed')); }
+    };
+    const lateOf = m => !t.sim && (ctParts(Date.now()).min - m) > 3;
+    // Close an open play at its stop, target or 2:40 and price the option exit
+    const closePlay = (x, tier, soundOn, pf)=>{
+      const sMin=a.firstCross(x.entryMin, x.stop, x.side>0), tMin=a.firstCross(x.entryMin, x.tp, x.side<0);
+      if(sMin!=null && (tMin==null||sMin<=tMin)){ x.exit=x.stop; x.exitMin=sMin; x.reason='stop'; }
+      else if(tMin!=null){ x.exit=x.tp; x.exitMin=tMin; x.reason='target'; }
+      else if(a.lastMin>=RULES.FLAT){ x.exit=a.closeAt(RULES.FLAT); x.exitMin=RULES.FLAT; x.reason='flat'; }
+      if(x.exit==null) return false;
+      if(x.liveMid && x.contract && !x.contract.est && !lateOf(x.exitMin)){ x.premExit=x.liveMid; x.optPct=(x.liveMid/x.premEntry-1)*100; }
+      else if(x.contract && x.premEntry){ const v=project({...x.contract, mid:x.premEntry}, x.side*(x.exit-x.entry), (x.exitMin-x.entryMin)/390); x.premExit=v; x.optPct=(v/x.premEntry-1)*100; }
+      if(!lateOf(x.exitMin)) exitAlert(x, tier, soundOn); pf&&pf(t); return true;
+    };
+    monitor(t.trade, 'trade', 'GO IN');
+    if(!t.trade) monitor(t.shadow, 'shadow', 'TECH GO');
+    monitor(t.five, 'five', '5-MIN');
+    // 5-MIN confirmation play: the 5-minute candle (8:45-8:49, 8:50-8:54, ...) closes beyond the trigger with volume delta past +/-10%.
+    // Its own entry, stop (-0.5 ATR), target (+1.5 ATR) and 2:40 flat; does not need Jev (Jev is recorded for comparison).
+    if(a.orReady && !a.premarket && t.atr && a.series && a.series.length){
+      const up=a.orHi+RULES.ATR_K*t.atr, dn=a.orLo-RULES.ATR_K*t.atr;
+      const is5 = m => (m-RULES.OPEN)%5===4;
+      const nowM = t.sim ? Infinity : ctParts(Date.now()).min;   // live: only candles that have fully closed
+      const done5 = p => p.m < nowM && p.m <= a.lastMin;
+      if(t.five && t.five.exit==null) closePlay(t.five, '5-MIN', fiveSoundRef.current, persistFive);
+      if(t.five && t.five.exit!=null && (t.n5||1)<3){
+        const q=a.series.find(p=>p.m>=t.five.exitMin+15 && p.m<=MON_END && is5(p.m) && done5(p) && p.c<up && p.c>dn);
+        if(q){ t.past=t.past||[]; t.past.push({...t.five, kind:'5-MIN'}); t.five=null; t.n5=(t.n5||1)+1; t.from5=q.m+1; if(!lateOf(q.m)) toast(t.sym+' · 5-MIN re-armed · watching for play #'+t.n5,'ref'); }
+      }
+      if(!t.five){
+        const from=Math.max(RULES.WIN_START, t.from5||0);
+        const q=a.series.find(p=>p.m>=from && p.m<=MON_END && is5(p.m) && done5(p) && ((p.c>up && p.f>=RULES.FLOW_PCT) || (p.c<dn && p.f<=-RULES.FLOW_PCT)));
+        if(q){
+          const sd = q.c>up ? 1 : -1, entry=q.c, late=lateOf(q.m);
+          const pDir = t.pUp==null ? null : (sd>0?t.pUp:1-t.pUp);
+          const useLive = t.contract && t.contract.side===sd && !t.contract.est;
+          const c = useLive ? t.contract : (()=>{ const e=estContract(entry,t.atr,sd,t.date); e.ticker=occ(t.sym,e.expiry,sd,e.strike); return {...e,side:sd}; })();
+          // a live quote is for the current price: shift it back to the candle-close price with delta
+          const prem = useLive ? Math.max(0.01, c.mid + (Number.isFinite(c.delta)?c.delta:0.5*sd)*(entry-a.price)) : c.mid;
+          const one = t.trade ? t.trade : null;
+          t.five={side:sd, entry, entryMin:q.m, barStart:q.m-4, stop:entry-sd*RULES.STOP_ATR*t.atr, tp:entry+sd*RULES.TP_ATR*t.atr, exit:null, prime:q.m<=RULES.WIN_END,
+            pDir, jevOk: pDir!=null && pDir>=RULES.JEV_MIN, flow:q.f, n:t.n5||1, ev:[], fiveAt: (t.sim||late)?null:Date.now(), late, routed: !!t.sim,
+            oneMin: one ? {entryMin:one.entryMin, entry:one.entry, side:one.side} : null,
+            contract:{ticker:c.ticker, expiry:c.expiry, strike:c.strike, delta:c.delta, gamma:c.gamma, theta:c.theta, mid:prem, est:!!c.est}, premEntry:prem};
+          { const z=sizeBudget({mid:prem}, budgetRef.current); t.five.contracts=z?z.n:null; t.five.budget=budgetRef.current; }
+          if(!late){
+            flashUntil.current[t.sym]=Date.now()+2600;
+            toast(t.sym+' · 5-MIN GO '+(sd>0?'CALLS':'PUTS')+' · '+hm(q.m-4)+' candle closed '+(sd>0?'above':'below')+' '+f2(sd>0?up:dn)+((t.n5||1)>1?' · play #'+t.n5:''),'five');
+            if(soundRef.current!=='off' && fiveSoundRef.current){ fiveTone(); if(soundRef.current==='voice') sayFive(t.sym, sd); }
+          }
+          persistFive&&persistFive(t);
+          closePlay(t.five, '5-MIN', fiveSoundRef.current, persistFive);   // a reconstructed play may already have closed
+        }
+      }
+    }
+    // Re-arm after a play closes: 15-minute cooldown and price back between the triggers, up to 3 plays per ticker per day
+    {
+      const open = (t.trade&&t.trade.exit==null) || (t.shadow&&t.shadow.exit==null);
+      if((t.trade||t.shadow) && !open && (t.n||1)<3 && a.orReady && !a.premarket && a.lastMin<MON_END && t.atr){
+        const lastExit = Math.max(t.trade&&t.trade.exitMin||0, t.shadow&&t.shadow.exitMin||0);
+        const up=a.orHi+RULES.ATR_K*t.atr, dn=a.orLo-RULES.ATR_K*t.atr;
+        if(a.lastMin>=lastExit+15 && a.price<up && a.price>dn){
+          t.past=t.past||[];
+          if(t.trade) t.past.push({...t.trade, kind:'GO IN'});
+          if(t.shadow) t.past.push({...t.shadow, kind:'TECH GO', upgraded: !!t.trade});
+          t.trade=null; t.shadow=null; t.n=(t.n||1)+1; t.sc=null;
+          toast(t.sym+' · re-armed · watching for play #'+t.n,'ref');
+        }
+      }
+    }
+    // Shadow signal: price + volume passed but Jev did not. Tracked to stop/target/2:40 for comparison, never a GO.
+    if(t.shadow && t.shadow.exit==null && a.orReady && !a.premarket){
+      const sh=t.shadow; const sMin=a.firstCross(sh.entryMin, sh.stop, sh.side>0), tMin=a.firstCross(sh.entryMin, sh.tp, sh.side<0);
+      if(sMin!=null && (tMin==null||sMin<=tMin)){ sh.exit=sh.stop; sh.exitMin=sMin; sh.reason='stop'; }
+      else if(tMin!=null){ sh.exit=sh.tp; sh.exitMin=tMin; sh.reason='target'; }
+      else if(a.lastMin>=RULES.FLAT){ sh.exit=a.closeAt(RULES.FLAT); sh.exitMin=RULES.FLAT; sh.reason='flat'; }
+      if(sh.exit!=null){ if(!lateOf(sh.exitMin)) exitAlert(sh, 'TECH GO', techSoundRef.current); if(sh.liveMid && sh.contract && !sh.contract.est){ sh.premExit=sh.liveMid; sh.optPct=(sh.liveMid/sh.premEntry-1)*100; } else if(sh.contract){ const v=project(sh.contract, sh.side*(sh.exit-sh.entry), (sh.exitMin-sh.entryMin)/390); sh.premExit=v; sh.optPct=(v/sh.premEntry-1)*100; } persistShadow&&persistShadow(t); }
+    }
+    if(!t.shadow && !t.trade && a.orReady && !a.premarket && a.lastMin>=RULES.WIN_START && a.lastMin<=MON_END && t.atr){
+      for(const sd of [1,-1]){ const x=score(a,t.atr,sd,t.pUp,true);
+        const spreadKnown = t.contract && t.contract.side===sd && t.contract.spreadPct!=null;
+        if(x.L.breakout && x.L.flow && !x.L.jev && (!spreadKnown || t.contract.spreadPct<=RULES.SPREAD_MAX)){ const entry=a.price;
+          const c = t.contract && t.contract.side===sd && !t.contract.est ? t.contract : (()=>{ const e=estContract(entry,t.atr,sd,t.date); e.ticker=occ(t.sym,e.expiry,sd,e.strike); return {...e,side:sd}; })();
+          t.shadow={side:sd, entry, entryMin:a.lastMin, stop:entry-sd*RULES.STOP_ATR*t.atr, tp:entry+sd*RULES.TP_ATR*t.atr, exit:null, prime:a.lastMin<=RULES.WIN_END, pDir:x.pDir, n: t.n||1, ev:[],
+            contract:{ticker:c.ticker, expiry:c.expiry, strike:c.strike, delta:c.delta, gamma:c.gamma, theta:c.theta, mid:c.mid, est:!!c.est}, premEntry:c.mid};
+          t.shadow.techAt= t.sim ? null : Date.now(); flashUntil.current[t.sym]=Date.now()+2600;
+          toast(t.sym+' · TECH GO '+(sd>0?'CALLS':'PUTS')+' · Jev not confirming','tech');
+          if(soundRef.current!=='off' && techSoundRef.current){ techDing(); if(soundRef.current==='voice') sayTech(t.sym, sd); }
+          persistShadow&&persistShadow(t); break; } }
+    }
+    if(t.trade && t.trade.exit==null){
+      const tr=t.trade;
+      const sMin = a.firstCross(tr.entryMin, tr.stop, tr.side>0);
+      const tMin = tr.tp!=null ? a.firstCross(tr.entryMin, tr.tp, tr.side<0) : null;
+      if(sMin!=null && (tMin==null || sMin<=tMin)){ tr.exit=tr.stop; tr.exitMin=sMin; tr.reason='stop'; t.status='STOP'; if(!lateOf(sMin)) exitAlert(tr,'GO IN',true); persist&&persist(t); }
+      else if(tMin!=null){ tr.exit=tr.tp; tr.exitMin=tMin; tr.reason='target'; t.status='TP'; if(!lateOf(tMin)) exitAlert(tr,'GO IN',true); persist&&persist(t); }
+      else if(a.lastMin>=RULES.FLAT){ tr.exit=a.closeAt(RULES.FLAT); tr.exitMin=RULES.FLAT; tr.reason='flat'; t.status='FLAT'; if(!lateOf(RULES.FLAT)) exitAlert(tr,'GO IN',true); persist&&persist(t); }
+      else t.status='GO';
+      t.sc = score(a,t.atr,tr.side,t.pUp,t.contract&&t.contract.spreadPct!=null?t.contract.spreadPct<=RULES.SPREAD_MAX:t.spreadOk);
+      t.sc.side=tr.side; return;
+    }
+    if(t.trade){ t.status = t.trade.reason==='stop'?'STOP':(t.trade.reason==='target'?'TP':'FLAT'); t.sc=score(a,t.atr,t.trade.side,t.pUp,true); t.sc.side=t.trade.side; return; }
+    const spreadOk = t.contract && t.contract.spreadPct!=null ? t.contract.spreadPct<=RULES.SPREAD_MAX : t.spreadOk;
+    t.sc = bestSide(a,t.atr,t.pUp,spreadOk);
+    const m = a.lastMin;
+    if(m < RULES.OR_END) t.status='PRE';
+    else if(m <= MON_END){
+      t.status='SCAN';
+      if(m>=RULES.WIN_START && t.sc.go){
+        const side=t.sc.side; const entry=a.price; const prime = m<=RULES.WIN_END;
+        t.trade={side, entry, entryMin:m, stop: entry - side*RULES.STOP_ATR*t.atr, tp: entry + side*RULES.TP_ATR*t.atr, exit:null, routed:false, prime, goAt: t.sim ? null : Date.now(), n: t.n||1, ev:[]};
+        if(!t.contract || t.contract.side!==side){ const c=estContract(entry,t.atr,side,t.date); c.ticker=occ(t.sym,c.expiry,side,c.strike); t.contract={...c, side}; }
+        t.trade.premEntry = t.contract.mid; t.status='GO';
+        { const z=sizeBudget(t.contract, budgetRef.current); t.trade.contracts = z? z.n : null; t.trade.budget = budgetRef.current; }
+        flashUntil.current[t.sym]=Date.now()+2600; toast(t.sym+' · GO IN '+(side>0?'CALLS':'PUTS')+((t.n||1)>1?' · play #'+t.n:'')+(prime?' · prime':' · after 9:00'), PRIMARY.includes(t.sym)?'':'ref');
+        if(soundRef.current!=='off'){ chaChing(); if(soundRef.current==='voice') sayGo(t.sym, side); }
+        persist&&persist(t);
+      }
+    } else t.status = 'NONE';
+  },[]);
+
+  /* ---------- SIM ---------- */
+  const initDay = (days, day, replay)=>{
+    flashUntil.current={}; optPending.current={}; setRealOpt({});
+    sim.current = {days, cursor: RULES.OPEN+14, day, replay: replay||null};
+    S.current={};
+    ALL.forEach(s=>{ const d=days[s]; S.current[s] = d ? {sym:s, sim:true, date: replay||undefined, prevClose:d.prevClose, atr:d.atr, pUp:d.pUp, spreadOk:d.spreadOk, trade:null, contract:null, a:null, status:'PRE'} : {sym:s, sim:true, err:'no data', status:'IDLE', a:null}; });
+    stepSim(0);
+  };
+  const newSimDay = useCallback(()=>{
+    const mkt = gauss()*0.8;
+    const days = Object.fromEntries(ALL.map(s=>[s,genDay(s, mkt)]));
+    initDay(days, (sim.current?sim.current.day:0)+1, null);
+  },[]);
+  const restartDay = ()=>{ const sm=sim.current; if(!sm) return; setSimRun(false); initDay(sm.days, sm.day, sm.replay); };
+  const stepSim = useCallback((n)=>{
+    const sm=sim.current; if(!sm) return;
+    const target = Math.min(RULES.FLAT, sm.cursor + Math.max(0,n));
+    do { sm.cursor = Math.min(target, sm.cursor + (n>0?1:0));
+    ALL.forEach(s=>{ const t=S.current[s]; const d=sm.days[s]; if(!d) return;
+      t.a = analyze(d.bars.filter(b=>b.min<=sm.cursor), t);
+      if(t.a && t.a.orReady && t.sc && !t.trade && (!t.contract || t.contract.side!==(t.sc.side||1))){ const sd=t.sc.side||1; const c=estContract(t.a.price,t.atr,sd,sm.replay||undefined); c.ticker=occ(s,c.expiry,sd,c.strike); t.contract={...c, side:sd}; t.contract.spreadPct = d.spreadOk==null ? null : (d.spreadOk?0.03:0.07); }
+      const before = t.trade && t.trade.exit;
+      evaluate(t, sm.cursor, (tt)=>{
+        const tr=tt.trade; const id=sm.day+'-'+tt.sym;
+        if(tr.exit==null){ setSimLog(L=>[{id, day:sm.day, role:roleOf(tt.sym), sym:tt.sym, side:tr.side, entry:tr.entry, entryMin:tr.entryMin, exit:null}, ...L].slice(0,40)); return; }
+        const hf = (tr.exitMin-tr.entryMin)/390; const m = tr.side*(tr.exit-tr.entry); const v=project(tt.contract, m, hf);
+        setSimLog(L=>L.map(r=>r.id===id?{...r, exit:tr.exit, exitMin:tr.exitMin, reason:tr.reason, opt:(v/tt.contract.mid-1)*100}:r));
+      });
+    });
+    } while(sm.cursor < target);
+    if(sm.cursor>=RULES.FLAT) setSimRun(false);
+    setTick(x=>x+1);
+  },[evaluate]);
+  useEffect(()=>{ if(mode==='sim' && !sim.current) newSimDay(); },[mode,newSimDay]);
+  useEffect(()=>{ if((mode!=='sim'&&mode!=='replay')||!simRun) return; const id=setInterval(()=>stepSim(1), 1000/simSpeed); return ()=>clearInterval(id); },[mode,simRun,simSpeed,stepSim]);
+
+  /* ---------- LIVE ---------- */
+  const call = useCallback(async (server, tool, input)=>{
+    if(!mcp) throw {code:'not_granted'};
+    return mcp.callTool(server, tool, input, {cache:false});
+  },[mcp]);
+  const persistLive = useCallback(async (t)=>{
+    if(!db||!t.trade) return; const tr=t.trade; const today=ctParts(Date.now()).date;
+    const doc={date:today, sym:t.sym, role:roleOf(t.sym), prime: !!tr.prime, goAt: tr.goAt??null, side:tr.side, entry:tr.entry, entryMin:tr.entryMin, stop:tr.stop, status: tr.exit==null?'open':'closed',
+      tp:tr.tp??null, exit:tr.exit??null, exitMin:tr.exitMin??null, exitReason:tr.reason??null, source:'live',
+      contract: t.contract? {ticker:t.contract.ticker||null, expiry:t.contract.expiry||null, strike:t.contract.strike, type:tr.side>0?'call':'put', delta:t.contract.delta, bid:t.contract.bid??null, ask:t.contract.ask??null, est:!!t.contract.est}:null,
+      contracts: tr.contracts??null, budget: tr.budget??null,
+      dollarPL: (tr.contracts && tr.premEntry && tr.premExit) ? Math.round((tr.premExit-tr.premEntry)*100*tr.contracts) : null,
+      premEntry: tr.premEntry??null, premExit: tr.premExit??null, optPct: tr.optPct??null, stockPct: tr.exit!=null? tr.side*(tr.exit/tr.entry-1)*100 : null,
+      fadeDone: tr.fade!==undefined, fade: tr.fade??null, updatedAt:new Date().toISOString()};
+    const pn=tr.n||1; doc.n=pn; doc.alerts=(tr.ev||[]).slice(-20); doc.maxR=tr.maxR??null;
+    try{ await db.collection('paper').doc(today+'-'+t.sym+(pn>1?'-p'+pn:'')).set(doc); }catch(e){ setLiveMsg('Could not write the paper log ('+(e.code||'error')+').'); }
+  },[db]);
+
+  const persistShadow = useCallback(async (t)=>{
+    if(!db||!t.shadow) return; const sh=t.shadow; const today=ctParts(Date.now()).date;
+    const doc={date:today, sym:t.sym, role:roleOf(t.sym), source:'shadow', prime:!!sh.prime, techAt: sh.techAt??null, upgradedAt: t.trade&&t.trade.goAt? t.trade.goAt : null, side:sh.side, entry:sh.entry, entryMin:sh.entryMin, stop:sh.stop, tp:sh.tp,
+      status: sh.exit==null?'open':'closed', exit:sh.exit??null, exitMin:sh.exitMin??null, exitReason:sh.reason??null, jevDir: sh.pDir??null,
+      contract: sh.contract? {ticker:sh.contract.ticker, expiry:sh.contract.expiry, strike:sh.contract.strike, type:sh.side>0?'call':'put', est:sh.contract.est}:null,
+      premEntry: sh.premEntry??null, premExit: sh.premExit??null, optPct: sh.optPct??null, stockPct: sh.exit!=null? sh.side*(sh.exit/sh.entry-1)*100 : null,
+      fadeDone: sh.fade!==undefined, fade: sh.fade??null, updatedAt:new Date().toISOString()};
+    if(sh.premEntry>0){ const z=sizeBudget({mid:sh.premEntry}, budgetRef.current); doc.contracts=z.n; doc.budget=budgetRef.current; if(sh.premExit>0) doc.dollarPL=Math.round((sh.premExit-sh.premEntry)*100*z.n); }
+    const pn=sh.n||1; doc.n=pn; doc.alerts=(sh.ev||[]).slice(-20); doc.maxR=sh.maxR??null;
+    try{ await db.collection('paper').doc(today+'-'+t.sym+'-shadow'+(pn>1?'-p'+pn:'')).set(doc); }catch(e){}
+  },[db]);
+
+  const paperRef=useRef([]); paperRef.current=paper;
+  // 5-MIN confirmation plays: one doc per play, id <date>-<SYM>-5m[-pN]
+  const persistFive = useCallback(async (t)=>{
+    if(!db||!t.five) return; const x=t.five; const today=ctParts(Date.now()).date; const pn=x.n||1;
+    const id = today+'-'+t.sym+'-5m'+(pn>1?'-p'+pn:'');
+    const prev = paperRef.current.find(p=>p.id===id);   // keep the first-seen alert time if the board was reloaded
+    const doc={date:today, sym:t.sym, role:roleOf(t.sym), source:'five', rule:'5-min candle close beyond trigger + volume delta ±10%', n:pn,
+      prime:!!x.prime, fiveAt: prev&&prev.fiveAt ? prev.fiveAt : (x.fiveAt??null), late: prev&&prev.late===false ? false : !!x.late,
+      barStart:x.barStart??(x.entryMin-4), side:x.side, entry:x.entry, entryMin:x.entryMin, stop:x.stop, tp:x.tp,
+      status: x.exit==null?'open':'closed', exit:x.exit??null, exitMin:x.exitMin??null, exitReason:x.reason??null,
+      jevDir: x.pDir??null, jevOk: !!x.jevOk, flow: x.flow??null, oneMin: x.oneMin??null,
+      contract: x.contract? {ticker:x.contract.ticker, expiry:x.contract.expiry, strike:x.contract.strike, type:x.side>0?'call':'put', delta:x.contract.delta??null, est:!!x.contract.est}:null,
+      premEntry: x.premEntry??null, premExit: x.premExit??null, optPct: x.optPct??null, stockPct: x.exit!=null? x.side*(x.exit/x.entry-1)*100 : null,
+      contracts: x.contracts??null, budget: x.budget??null,
+      dollarPL: (x.contracts && x.premEntry>0 && x.premExit>0) ? Math.round((x.premExit-x.premEntry)*100*x.contracts) : null,
+      fadeDone: x.fade!==undefined, fade: x.fade??null, alerts:(x.ev||[]).slice(-20), maxR:x.maxR??null, updatedAt:new Date().toISOString()};
+    try{ await db.collection('paper').doc(id).set(doc); }catch(e){}
+  },[db]);
+
+  const persistRef=useRef(null); persistRef.current = mode==='live' ? persistLive : null;
+  const persistShadowRef=useRef(null); persistShadowRef.current = mode==='live' ? persistShadow : null;
+  const persistFiveRef=useRef(null); persistFiveRef.current = mode==='live' ? persistFive : null;
+
+  // Rebuild today's plays (all play numbers) from the paper log after a reload
+  const restoreToday = (t, sym, today)=>{
+    const docs = paper.filter(p=>p.date===today && p.sym===sym);
+    const mk = (d, kind)=>({side:d.side, entry:d.entry, entryMin:d.entryMin, stop:d.stop, tp:d.tp??(d.entry+d.side*RULES.TP_ATR*t.atr), exit:d.exit, exitMin:d.exitMin, reason:d.exitReason,
+      premEntry:d.premEntry, premExit:d.premExit, optPct:d.optPct, routed:true, contracts:d.contracts??null, budget:d.budget??null, prime: d.prime ?? (d.entryMin<=RULES.WIN_END),
+      goAt:d.goAt??null, techAt:d.techAt??null, pDir:d.jevDir, fade: d.fadeDone ? d.fade : undefined, n:d.n||1, ev:d.alerts||[], maxR:d.maxR||0, kind,
+      contract: d.contract? {...d.contract, mid:d.premEntry, delta: d.contract.delta??0.5, gamma:0, theta:0}:null});
+    // 5-MIN plays have their own play counter
+    const fives = docs.filter(d=>d.source==='five').sort((x,y)=>(x.n||1)-(y.n||1));
+    if(fives.length){ const m5=Math.max(...fives.map(d=>d.n||1));
+      if((t.n5||1)<m5 || (!t.five && t.n5==null)){
+        t.n5=m5; t.past=(t.past||[]).filter(x=>x.kind!=='5-MIN');
+        fives.forEach(d=>{ if((d.n||1)<m5) t.past.push(mk(d,'5-MIN')); });
+        const lf=fives.find(d=>(d.n||1)===m5); t.five=mk(lf,'5-MIN'); delete t.five.kind;
+        Object.assign(t.five, {fiveAt:lf.fiveAt??null, late:!!lf.late, jevOk:!!lf.jevOk, flow:lf.flow??null, oneMin:lf.oneMin??null, barStart:lf.barStart??null});
+      } }
+    const trades = docs.filter(d=>d.source==='live').sort((x,y)=>(x.n||1)-(y.n||1));
+    const shadows = docs.filter(d=>d.source==='shadow').sort((x,y)=>(x.n||1)-(y.n||1));
+    const maxN = Math.max(1, ...trades.map(d=>d.n||1), ...shadows.map(d=>d.n||1));
+    if((t.n||1) > maxN) return;   // already re-armed past the logged plays
+    if((t.n||1) >= maxN && (t.trade || t.shadow || (!trades.length && !shadows.length))) return;
+    t.past=(t.past||[]).filter(x=>x.kind==='5-MIN'); t.n=maxN;
+    trades.forEach(d=>{ if((d.n||1)<maxN) t.past.push(mk(d,'GO IN')); });
+    shadows.forEach(d=>{ if((d.n||1)<maxN) t.past.push(mk(d,'TECH GO')); });
+    const lt = trades.find(d=>(d.n||1)===maxN), ls = shadows.find(d=>(d.n||1)===maxN);
+    if(lt && !t.trade){ t.trade=mk(lt,'GO IN'); delete t.trade.kind; const c=t.trade.contract; delete t.trade.contract; if(c && c.ticker) t.contract={...(t.contract||{}), ...c, side:lt.side}; }
+    if(ls && !t.shadow){ t.shadow=mk(ls,'TECH GO'); delete t.shadow.kind; }
+  };
+
+  const loadDaily = useCallback(async (sym, today)=>{
+    const res = await call('host:massive','call_api',{path:`/v2/aggs/ticker/${sym}/range/1/day/${shiftDays(today,-45)}/${today}`, params:{adjusted:'true',sort:'asc',limit:100}});
+    const rows = parseCSV(resultText(res)).map(r=>({t:+r.t,h:+r.h,l:+r.l,c:+r.c})).filter(r=>Number.isFinite(r.t) && r.t>0 && Number.isFinite(r.c));
+    const past = rows.filter(r=>ctParts(r.t+12*3600e3).date < today);
+    const prevClose = past.length? past[past.length-1].c : null;
+    const tr=[]; for(let i=1;i<past.length;i++){ tr.push(Math.max(past[i].h,past[i-1].c)-Math.min(past[i].l,past[i-1].c)); }
+    const atr = tr.slice(-14).reduce((s,x)=>s+x,0)/Math.max(1,Math.min(14,tr.length));
+    return {prevClose, atr};
+  },[call]);
+  const loadMinutes = useCallback(async (sym, today)=>{
+    const res = await call('host:massive','call_api',{path:`/v2/aggs/ticker/${sym}/range/1/minute/${today}/${today}`, params:{adjusted:'true',sort:'asc',limit:50000}});
+    return parseCSV(resultText(res)).filter(r=>Number.isFinite(+r.t) && +r.t>0).map(r=>{ const t=+r.t; return {min:ctParts(t).min, o:+r.o,h:+r.h,l:+r.l,c:+r.c,v:+r.v}; }).filter(b=>Number.isFinite(b.c));
+  },[call]);
+  const loadJev = useCallback(async (sym, today)=>{
+    const since = shiftDays(today,-1)+'T19:00:00Z';
+    const res = await call('host:massive','call_api',{path:'/v2/reference/news', params:{ticker:sym, 'published_utc.gte':since, order:'desc', sort:'published_utc', limit:15}});
+    const heads = parseCSV(resultText(res)).map(r=>r.title).filter(Boolean).slice(0,15);
+    if(!heads.length) return {pUp:null, n:0};
+    const ev = await call('host:evaluate','evaluate',{questions:{up:{type:'noul',instructions:`Given these news headlines published since yesterday's close, is ${sym}'s stock price more likely to rise than fall during today's regular session?`}}, state:{ticker:sym, headlines:heads}});
+    const p = ev.payload && ev.payload.answers && ev.payload.answers.up ? ev.payload.answers.up.noul : null;
+    return {pUp: typeof p==='number'?p:null, n:heads.length};
+  },[call]);
+  // ATM contract, expiry closest to 30 days out (never 0DTE): calls for an upside break, puts for a downside break
+  const loadRoute = useCallback(async (sym, today, side, S0)=>{
+    const res = await call('host:massive','call_api',{path:`/v3/snapshot/options/${sym}`, params:{
+      contract_type: side>0?'call':'put', 'expiration_date.gte': shiftDays(today,RULES.EXP_MIN), 'expiration_date.lte': shiftDays(today,RULES.EXP_MAX),
+      'strike_price.gte': Math.floor(S0*0.96), 'strike_price.lte': Math.ceil(S0*1.04), limit:250}});
+    const rows = parseCSV(resultText(res)).filter(r=>r.details_ticker && r.details_expiration_date);
+    if(!rows.length) return null;
+    const exps = [...new Set(rows.map(r=>r.details_expiration_date))].filter(e=>dteOf(today,e)>0);
+    const exp = exps.sort((x,y)=>Math.abs(dteOf(today,x)-RULES.DTE)-Math.abs(dteOf(today,y)-RULES.DTE))[0];
+    const atExp = rows.filter(r=>r.details_expiration_date===exp);
+    const r = atExp.sort((x,y)=>Math.abs(+x.details_strike_price-S0)-Math.abs(+y.details_strike_price-S0))[0];
+    const bid=+r.last_quote_bid, ask=+r.last_quote_ask; const mid = bid>0&&ask>0 ? (bid+ask)/2 : +r.last_quote_midpoint;
+    return {ticker:r.details_ticker, strike:+r.details_strike_price, expiry:exp, dte:dteOf(today,exp), delta:+r.greeks_delta, gamma:+r.greeks_gamma, theta:+r.greeks_theta, iv:+r.implied_volatility,
+            bid: bid>0?bid:null, ask: ask>0?ask:null, mid, spreadPct: mid>0&&ask>0&&bid>0 ? (ask-bid)/mid : null, side, est:false, at:Date.now(), quoteAt: (+r.last_quote_last_updated>0 ? Math.round(+r.last_quote_last_updated/1e6) : null), under: +r.underlying_asset_price||null};
+  },[call]);
+  const quoteContract = useCallback(async (sym, ticker)=>{
+    const res = await call('host:massive','call_api',{path:`/v3/snapshot/options/${sym}/${ticker}`});
+    const r = parseCSV(resultText(res))[0]; if(!r) return null; const bid=+r.last_quote_bid, ask=+r.last_quote_ask; return bid>0&&ask>0?(bid+ask)/2:(+r.last_quote_midpoint||null);
+  },[call]);
+
+  /* ---------- REPLAY a real past day ---------- */
+  const loadReplay = useCallback(async (date)=>{
+    if(!mcp){ setReplayMsg('Replay needs this board open in the Claude desktop app on your Mac (Massive + Jev).'); return; }
+    if(!date){ setReplayMsg('Pick a date first.'); return; }
+    setSimRun(false); sim.current=null; S.current={}; setTick(x=>x+1);
+    setReplayMsg('Loading '+dateLabel(date)+' price data…');
+    const days={}, missing=[], why={}; const queue=[...ALL];
+    const retry = async (fn)=>{ for(let k=0;;k++){ try{ return await fn(); }catch(e){ const c=e&&e.code; if(k>=2 || ['not_granted','not_in_manifest','cancelled','server_not_connected'].includes(c)) throw e; await new Promise(r=>setTimeout(r,800*(k+1))); } } };
+    await Promise.all([0,1].map(async()=>{ while(queue.length){ const sym=queue.shift();
+      try{ const d=await retry(()=>loadDaily(sym,date)); const bars=await retry(()=>loadMinutes(sym,date));
+        if(!bars.length) throw {code:'empty response'};
+        if(!bars.some(b=>b.min>=RULES.OPEN && b.min<15*60)) throw {code:'no regular-session bars ('+bars.length+' bars, first '+hm(bars[0].min)+', last '+hm(bars[bars.length-1].min)+')'};
+        days[sym]={bars, prevClose:d.prevClose, atr:d.atr, pUp:null, spreadOk:null}; }catch(e){ missing.push(sym); why[sym]=(e&&(e.code||e.message))||String(e); } } }));
+    const reason = missing.length ? ' First error ('+missing[0]+'): '+why[missing[0]]+'.' : '';
+    if(!Object.keys(days).length){ setReplayMsg('Could not load '+dateLabel(date)+' ('+date+') for any ticker.'+reason+(why[missing[0]]==='server_not_connected'?' The Massive server on your Mac is not reachable from this window.':'')); return; }
+    setReplayMsg('Reading '+dateLabel(date)+' pre-open news with Jev…');
+    const items={};
+    for(const sym of Object.keys(days)){ try{
+      const res=await call('host:massive','call_api',{path:'/v2/reference/news', params:{ticker:sym, 'published_utc.gte':shiftDays(date,-1)+'T19:00:00Z', 'published_utc.lte':date+'T12:00:00Z', order:'desc', sort:'published_utc', limit:15}});
+      const heads=parseCSV(resultText(res)).map(r=>r.title).filter(Boolean).slice(0,15); if(heads.length) items[sym]={ticker:sym, headlines:heads}; }catch(e){} }
+    let jevN=0;
+    if(Object.keys(items).length){ try{
+      const ev=await call('host:evaluate','evaluate',{questions:{up:{type:'noul',instructions:"Given these news headlines published since the prior day's close, is this stock's price more likely to rise than fall during the regular session that follows?"}}, items});
+      const r=(ev.payload&&ev.payload.results)||{}; for(const k in r){ const p=r[k]&&r[k].answers&&r[k].answers.up?r[k].answers.up.noul:null; if(typeof p==='number'&&days[k]){ days[k].pUp=p; jevN++; } } }catch(e){} }
+    initDay(days, 1, date);
+    setReplayMsg(dateLabel(date)+' loaded · Jev read '+jevN+' of '+Object.keys(days).length+' tickers'+(missing.length?' · could not load: '+missing.join(', ')+'.'+reason:'')+' Press Play.');
+  },[mcp, call, loadDaily, loadMinutes]);
+
+  // Real contract prices for a replayed signal: ATM, expiry nearest 30 days as of that date, last trade at entry and exit minutes
+  const priceReal = useCallback(async (date, sym, side, entryMin, exitMin, px)=>{
+    const res=await call('host:massive','call_api',{path:'/v3/reference/options/contracts', params:{underlying_ticker:sym, as_of:date, contract_type: side>0?'call':'put',
+      'expiration_date.gte':shiftDays(date,RULES.EXP_MIN), 'expiration_date.lte':shiftDays(date,RULES.EXP_MAX), 'strike_price.gte':Math.floor(px*0.96), 'strike_price.lte':Math.ceil(px*1.04), limit:250}});
+    const rows=parseCSV(resultText(res)).filter(r=>r.ticker&&r.expiration_date); if(!rows.length) return {ticker:null};
+    const exps=[...new Set(rows.map(r=>r.expiration_date))]; const exp=exps.sort((x,y)=>Math.abs(dteOf(date,x)-RULES.DTE)-Math.abs(dteOf(date,y)-RULES.DTE))[0];
+    const c=rows.filter(r=>r.expiration_date===exp).sort((x,y)=>Math.abs(+x.strike_price-px)-Math.abs(+y.strike_price-px))[0];
+    const bres=await call('host:massive','call_api',{path:`/v2/aggs/ticker/${c.ticker}/range/1/minute/${date}/${date}`, params:{adjusted:'true',sort:'asc',limit:50000}});
+    const bars=parseCSV(resultText(bres)).filter(r=>Number.isFinite(+r.t) && +r.t>0).map(r=>({min:ctParts(+r.t).min, c:+r.c})).filter(b=>Number.isFinite(b.c));
+    const at=(m)=>{ const b=bars.filter(x=>x.min<=m); return b.length?b[b.length-1].c:(bars.find(x=>x.min>m)||{}).c; };
+    const p0=at(entryMin), p1=at(exitMin);
+    if(!(p0>0)||!(p1>0)) return {ticker:c.ticker};
+    const n=sizeBudget({mid:p0}, budgetRef.current).n;
+    return {ticker:c.ticker, p0, p1, n, pct:(p1/p0-1)*100};
+  },[call]);
+  useEffect(()=>{
+    if(mode!=='replay' || !sim.current || !sim.current.replay) return; const date=sim.current.replay;
+    for(const sym of ALL){ const t=S.current[sym]; if(!t) continue;
+      for(const [tier,x] of [['GO IN',t.trade],['TECH GO',t.shadow],['5-MIN',t.five],...(t.past||[]).map(p=>[p.kind,p])]){ if(!x||x.exit==null) continue; const k=sym+'|'+tier+'|'+(x.n||1);
+        if(optPending.current[k]) continue; optPending.current[k]=true;
+        priceReal(date, sym, x.side, x.entryMin, x.exitMin, x.entry).then(r=>setRealOpt(o=>({...o,[k]:r}))).catch(()=>setRealOpt(o=>({...o,[k]:{ticker:null}}))); } }
+  });
+
+  const busyRef=useRef(false);
+  const refreshInner = useCallback(async (full)=>{
+    if(!mcp){ setLiveMsg('No live connection in this window. Live data only works when this dashboard is open inside the Claude desktop app on your Mac (not in Chrome or the claude.ai website). To practice without it, switch Data to Simulated session.'); return; }
+    setBusy(true); setLiveMsg(full?'Loading prices…':'');
+    const now=Date.now(); const {date:today, min:nowMin}=ctParts(now);
+    const errs={};
+    const order=[...PRIMARY, ...ALL.filter(s=>!PRIMARY.includes(s))];
+    // Phase 1: prices for every ticker in parallel, each card drawn as soon as its bars arrive
+    const retry = async (fn)=>{ for(let k=0;;k++){ try{ return await fn(); }catch(e){ const c=e&&e.code; if(k>=2 || ['not_granted','not_in_manifest','cancelled','server_not_connected'].includes(c)) throw e; await new Promise(r=>setTimeout(r,800*(k+1))); } } };
+    const queue=[...order];
+    await Promise.all([0,1,2].map(async ()=>{ while(queue.length){ const sym=queue.shift();
+      const t = S.current[sym] && S.current[sym].date===today ? S.current[sym] : (S.current[sym]={sym, date:today, trade:null, contract:null, a:null, pUp:null, status:'IDLE'});
+      try{
+        if(full || t.atr==null){ const d=await retry(()=>loadDaily(sym,today)); t.prevClose=d.prevClose; t.atr=d.atr; }
+        let bars = await retry(()=>loadMinutes(sym,today)); let lastDay=null;
+        if(!bars.some(b=>b.min>=RULES.OPEN-60)){ // nothing for today yet (overnight, weekend, holiday): show the last session instead
+          let d=today; for(let i=0;i<6;i++){ d=prevWeekday(d); const b2=await retry(()=>loadMinutes(sym,d)); if(b2.some(b=>b.min>=RULES.OPEN && b.min<15*60)){ bars=b2; lastDay=d; break; } }
+          if(lastDay){ try{ const d2=await retry(()=>loadDaily(sym,lastDay)); t.prevClose=d2.prevClose; }catch(e){} }
+        }
+        t.lastDay=lastDay; t.a = analyze(bars, t); t.err=null; t.noBars=!t.a; t.updatedAt=Date.now();
+        if(lastDay){ t.status='CLOSEDDAY'; t.sc = t.a && t.a.orReady ? bestSide(t.a, t.atr, t.pUp, false) : null; } if(t.a && t.status==='IDLE') t.status = t.a.premarket ? 'PRE' : 'SCAN';
+      }catch(e){ t.err=(e&&(e.code||e.message))||String(e)||'error'; t.errFull=(()=>{ try{ return (e&&e.message)||JSON.stringify(e).slice(0,200); }catch(x){ return String(e); } })(); errs[sym]=t.err; try{ console.error('[conviction] '+sym, e); }catch(x){} }
+      setTick(x=>x+1);
+    } }));
+    if(ALL.every(s=>!S.current[s] || S.current[s].lastDay || S.current[s].err)){
+      const ld=(ALL.map(s=>S.current[s]&&S.current[s].lastDay).find(Boolean));
+      if(full && ld){ setLiveMsg('Market closed · reading overnight news with Jev…');
+        for(const sym of order){ const t=S.current[sym]; if(!t||!t.lastDay||!t.a) continue;
+          try{ const j=await loadJev(sym,today); t.pUp=j.pUp; t.pUpN=j.n; t.pUpAt=now; }catch(e){ t.jevErr=e.code||'error'; }
+          t.sc = t.a.orReady ? bestSide(t.a, t.atr, t.pUp, false) : null; setTick(x=>x+1); } }
+      setLiveMsg(ld ? 'Market closed · showing last session ('+dateLabel(ld)+') close and after-hours. Live data resumes with premarket (about 3 AM CT).' : 'No data yet.');
+      setBusy(false); setTick(x=>x+1); return;
+    }
+    if(nowMin>RULES.FLAT+5){
+      for(const sym of order){ const t=S.current[sym]; if(!t||!t.a||errs[sym]) continue;
+        restoreToday(t, sym, today);
+        evaluate(t, nowMin, null, null, persistFive); }
+      setLiveMsg('Session closed · after-hours prices updated '+hm(ctParts(Date.now()).min)+' CT'); setBusy(false); setTick(x=>x+1); return; }
+    if(full) setLiveMsg('Prices loaded. Reading news (Jev) and option chains…');
+    // Phase 2: Jev, contract routing and trade state, one ticker at a time (primary first)
+    for(const sym of order){
+      const t=S.current[sym];
+      if(t.atr==null || errs[sym] || t.lastDay) continue;
+      try{
+        {
+          // restore an open paper trade after a reload
+          restoreToday(t, sym, today);
+          const jevEvery = (nowMin<=RULES.WIN_END ? 10 : 30)*60e3;
+          if((full || (nowMin>=RULES.OPEN-20 && nowMin<=MON_END && (t.pUpAt==null || now-t.pUpAt>jevEvery))) && !t.trade){ try{ const j=await loadJev(sym,today); t.pUp=j.pUp; t.pUpN=j.n; t.pUpAt=now; }catch(e){ t.jevErr=e.code||'error'; } }
+          const side = t.trade ? t.trade.side : (t.a ? bestSide(t.a,t.atr,t.pUp,true).side : 1);
+          if(t.a && !t.trade && (full || !t.contract || t.contract.side!==side || now-(t.contractAt||0)>55e3 || (t.contract && t.a && Math.abs(t.contract.strike - t.a.price) > (t.a.price>200?2.5:1)))){ try{ const c=await loadRoute(sym,today,side,t.a.price); if(c){ t.contract=c; t.contractAt=now; } else if(!t.contract){ const e=estContract(t.a.price,t.atr,side,today); e.ticker=occ(sym,e.expiry,side,e.strike); t.contract={...e,side}; } }catch(e){ if(!t.contract){ const x=estContract(t.a.price,t.atr,side,today); x.ticker=occ(sym,x.expiry,side,x.strike); t.contract={...x,side}; } } }
+        }
+        // live option price for open plays (GO IN uses the locked contract; TECH GO its own)
+        for(const x of [t.trade, t.shadow, t.five]){ if(!x || x.exit!=null) continue;
+          const ct = x===t.trade ? t.contract : x.contract;
+          if(ct && ct.ticker && !ct.est && !String(ct.ticker).includes('SYM')){ try{ const m=await quoteContract(sym, ct.ticker); if(m){ x.liveMid=m; x.liveAt=Date.now(); } }catch(e){} } }
+        const wasOpen = t.trade && t.trade.exit==null;
+        evaluate(t, nowMin, async (tt)=>{
+          const tr=tt.trade;
+          if(tr.exit!=null && tt.contract && tt.contract.ticker){ try{ const m=await quoteContract(sym, tt.contract.ticker); if(m){ tr.premExit=m; tr.optPct=(m/tr.premEntry-1)*100; } }catch(e){} }
+          if(tr.exit!=null && tr.optPct==null && tt.contract){ const v=project(tt.contract, tr.side*(tr.exit-tr.entry), (tr.exitMin-tr.entryMin)/390); tr.premExit=v; tr.optPct=(v/tr.premEntry-1)*100; }
+          await persistLive(tt);
+        }, persistShadow, persistFive);
+        if(t.five && !t.five.routed){
+          // 5-MIN just fired on an estimated contract: route the real ATM ~30-day contract and price it back to the candle close
+          const x=t.five; x.routed=true;
+          try{ const c=await loadRoute(sym,today,x.side,x.entry); if(c && c.mid>0){ const S0=c.under||t.a.price;
+            // price at the candle close: the contract's own 1-minute trades if it traded, else the live quote shifted back by delta
+            let prem=null, pExit=null, real=false;
+            try{ const bres=await call('host:massive','call_api',{path:`/v2/aggs/ticker/${c.ticker}/range/1/minute/${today}/${today}`, params:{adjusted:'true',sort:'asc',limit:50000}});
+              const ob=parseCSV(resultText(bres)).filter(r=>Number.isFinite(+r.t) && +r.t>0).map(r=>({min:ctParts(+r.t).min, c:+r.c})).filter(b=>b.c>0);
+              const at=m=>{ const b=ob.filter(z=>z.min<=m && z.min>=m-10); return b.length?b[b.length-1].c:null; };
+              prem=at(x.entryMin); if(x.exit!=null) pExit=at(x.exitMin); real=prem!=null; }catch(e){}
+            if(prem==null) prem=Math.max(0.01, c.mid + (Number.isFinite(c.delta)?c.delta:0.5*x.side)*(x.entry-S0));
+            x.contract={ticker:c.ticker, expiry:c.expiry, strike:c.strike, delta:c.delta, gamma:c.gamma, theta:c.theta, mid:prem, est:false, entryFromTrades:real};
+            x.premEntry=prem; const z=sizeBudget({mid:prem}, budgetRef.current); x.contracts=z?z.n:null;
+            if(x.exit!=null){ const v = pExit!=null ? pExit : project({...x.contract}, x.side*(x.exit-x.entry), (x.exitMin-x.entryMin)/390); x.premExit=v; x.optPct=(v/prem-1)*100; }
+            await persistFive(t); } }catch(e){}
+        }
+        if(t.trade && !t.trade.routed){
+          // GO IN just fired: route the exact ATM ~30-day contract at the trigger price
+          { try{ const c=await loadRoute(sym,today,t.trade.side,t.trade.entry); if(c){ t.contract=c; t.contractAt=now; } }catch(e){ t.routeErr=e.code||'error'; } }
+          t.trade.routed=true; t.trade.premEntry = t.contract ? t.contract.mid : null; t.trade.routedAt = ctParts(Date.now()).min;
+          { const z=sizeBudget(t.contract, budgetRef.current); t.trade.contracts = z? z.n : null; t.trade.budget = budgetRef.current; }
+          await persistLive(t);
+        }
+      }catch(e){ errs[sym]=e&&e.code||'error'; }
+      setTick(x=>x+1);
+    }
+    const bad=Object.keys(errs);
+    if(!bad.length) setLiveMsg('Updated '+hm(ctParts(Date.now()).min)+' CT');
+    else {
+      const code=errs[bad[0]];
+      const why = code==='server_not_connected' ? 'Massive is not reachable from this window: the Claude desktop app could not reach the Massive server on your Mac. Check that it is running in the app\'s connector settings, then press Refresh now.'
+        : code==='cancelled' ? 'A data request was declined in the Claude app. Press Refresh now and choose Allow.'
+        : code==='not_in_manifest' || code==='not_granted' ? 'Live data is not allowed for this page yet. Allow Massive and Jev when the app asks, then press Refresh now.'
+        : 'Data request failed ('+code+(S.current[bad[0]]&&S.current[bad[0]].errFull&&S.current[bad[0]].errFull!==code?': '+S.current[bad[0]].errFull:'')+').';
+      setLiveMsg((bad.length===ALL.length?'':'Updated '+hm(ctParts(Date.now()).min)+' CT except '+bad.join(', ')+'. ')+why);
+    }
+    setBusy(false); setTick(x=>x+1);
+  },[mcp, call, paper, loadDaily, loadMinutes, loadJev, loadRoute, quoteContract, evaluate, persistLive, persistShadow, persistFive]);
+  const refreshLive = useCallback(async (full)=>{
+    if(busyRef.current) return; busyRef.current=true;
+    try{ await refreshInner(full); } finally { busyRef.current=false; }
+  },[refreshInner]);
+
+  const refreshRef = useRef(refreshLive); refreshRef.current = refreshLive;
+  useEffect(()=>{ if(mode!=='live') return;
+    refreshRef.current(true);
+    let k=0; const id=setInterval(()=>{ k++; const {min,wd}=ctParts(Date.now()); if(wd==='Sat'||wd==='Sun') return;
+      if(min>=RULES.OPEN-15&&min<=RULES.FLAT+5) refreshRef.current(false);
+      else if(min>RULES.FLAT+5 && min<=19*60 && k%2===0) refreshRef.current(false); }, 30000);
+    return ()=>clearInterval(id);
+  },[mode, mcp]); // eslint-disable-line
+
+  const syncWebull = useCallback(async ()=>{
+    if(!mcp){ setSyncMsg('Open the board in the Claude app to sync.'); return; }
+    if(!db){ setSyncMsg('The log store is not available in this view.'); return; }
+    try{
+      setSyncMsg('Reading Webull…');
+      const accts = unwrapPayload(await mcp.callTool('Webull','get_account_list',{}, {cache:false}));
+      const acct = Array.isArray(accts) ? accts[0] : null; if(!acct||!acct.account_id){ setSyncMsg('No Webull account found.'); return; }
+      let combos=[], last=null;
+      for(let pg=0; pg<6; pg++){
+        const input={account_id:acct.account_id, page_size:'50'}; if(last) input.last_client_order_id=last;
+        const arr = unwrapPayload(await mcp.callTool('Webull','get_order_history',input,{cache:false}));
+        if(!Array.isArray(arr) || !arr.length) break; combos.push(...arr);
+        if(arr.length<50) break; const nl=arr[arr.length-1].client_order_id; if(!nl||nl===last) break; last=nl;
+      }
+      const trips = roundTrips(combos); let n=0;
+      for(const tr of trips){ const {id,...doc}=tr; await db.collection('real').doc(id).set({...doc, source:'webull', syncedAt:new Date().toISOString()}); n++; }
+      for(const r of real){ if(r.status==='open' && !trips.find(x=>x.id===r.id)){ try{ await db.collection('real').doc(r.id).delete(); }catch(e){} } }
+      setSyncMsg('Synced '+n+' trade'+(n===1?'':'s')+' · '+hms(Date.now())+' CT');
+    }catch(e){
+      const c=e&&e.code;
+      setSyncMsg(c==='server_not_connected'?'Webull is not connected on this account (claude.ai → Connectors).': c==='needs_reauth'?'Webull needs to be reconnected in claude.ai Connectors.': c==='cancelled'||c==='denied'?'Webull access was declined. Press Sync again and choose Allow.':'Sync failed ('+(c||'error')+').');
+    }
+  },[mcp, db, real]);
+
+  const syncRef=useRef(null); syncRef.current=syncWebull;
+  useEffect(()=>{ if(!mcp||!db) return; const first=setTimeout(()=>syncRef.current&&syncRef.current(), 4000);
+    const id=setInterval(()=>syncRef.current&&syncRef.current(), 10*60e3); return ()=>{ clearTimeout(first); clearInterval(id); }; },[mcp, db]);
+
+  const switchMode = (m)=>{ setMode(m); S.current={}; sim.current=null; setSimRun(false); setSimLog([]); setLiveMsg(''); setReplayMsg(m==='replay'?'Pick a past trading day and press Load day.':''); setRealOpt({}); optPending.current={}; setTick(x=>x+1); };
+
+  const T = S.current; const now=Date.now(); const ct=ctParts(now);
+  const clockMin = mode!=='live' ? (sim.current?sim.current.cursor:RULES.OPEN) : ct.min;
+  const cur = sim.current ? sim.current.cursor : null; const dayDone = cur!=null && cur>=RULES.FLAT;
+  const winTxt = clockMin<RULES.WIN_START ? 'GO IN opens 8:45 CT' : (clockMin<=RULES.WIN_END ? 'Prime window open' : (clockMin<=MON_END ? 'GO IN open to 2:00' : (clockMin<RULES.FLAT ? 'Holding to 2:40' : 'Session done')));
+  const goCount = ALL.filter(s=>T[s]&&T[s].trade).length; const techCount = ALL.filter(s=>T[s]&&!T[s].trade&&T[s].shadow&&T[s].shadow.exit==null).length;
+  const fiveCount = ALL.filter(s=>T[s]&&T[s].five&&T[s].five.exit==null).length;
+
+  return html`<div className="wrap">
+    ${mode && html`<${Ladder} T=${T} flash=${flashUntil.current}/>`}
+    <div className="toasts" aria-live="assertive">${toasts.map(t=>html`<div key=${t.id} className=${'toast '+(t.kind||'')}>${t.text}</div>`)}</div>
+    <header className="top">
+      <div><h1>Conviction Engine v2</h1>
+        <div className="sub">Opening-range breakout · 11 tickers · <b style=${{color:'var(--go)'}}>GO IN</b> (1-min, Jev agrees) · <b style=${{color:'var(--five)'}}>5-MIN</b> (5-min candle close) · <b style=${{color:'var(--amber)'}}>TECH GO</b> (no Jev) · 8:45 AM–2:00 PM CT · stop −0.5 ATR · target +1.5 ATR · flat 2:40</div></div>
+      <div className="chips">
+        <span className=${'chip '+(mode==='live'?'live':'sim')}>${mode==='live'?'Live · Massive + Jev':(mode==='replay'?'Replay · real data':'Simulated session')}</span>
+        <span className="chip win">${winTxt}</span>
+        <span className=${'chip'+(goCount?' live':'')}>${goCount} GO IN today</span>
+        ${fiveCount>0 && html`<span className="chip fivechip">${fiveCount} 5-MIN open</span>`}
+        ${techCount>0 && html`<span className="chip techchip">${techCount} TECH GO</span>`}
+        <${Clock} mode=${mode} simMin=${clockMin} replayDate=${sim.current&&sim.current.replay?sim.current.replay:(mode==='replay'?replayDate:null)}/>
+      </div>
+    </header>
+
+    <div className="bar-controls">
+      <label htmlFor="mode">Data</label>
+      <select id="mode" value=${mode} onChange=${e=>switchMode(e.target.value)}>
+        <option value="live">Live (Massive + Jev on your Mac)</option>
+        <option value="replay">Replay a past day (real data)</option>
+        <option value="sim">Simulated random day</option>
+      </select>
+      <span className="sep"></span>
+      ${mode!=='live' ? html`
+        ${mode==='replay' && html`<label htmlFor="rdate">Day</label><input id="rdate" type="date" value=${replayDate} max=${ctParts(Date.now()).date} onChange=${e=>setReplayDate(e.target.value)}/>
+          <button id="rload" className=${sim.current?'':'primary'} onClick=${()=>loadReplay(replayDate)}>Load day</button>`}
+        <button id="simrun" className="primary" disabled=${!sim.current} onClick=${()=>{ if(dayDone){ restartDay(); setSimRun(true); return; } setSimRun(r=>!r); }}>${simRun?'Pause':(dayDone?'Play again':'Play')}</button>
+        <button id="simstep" onClick=${()=>stepSim(1)} disabled=${simRun||!sim.current||dayDone}>Step 1 minute</button>
+        <button id="simjump" onClick=${()=>stepSim(RULES.WIN_END-cur)} disabled=${simRun||!sim.current||cur>=RULES.WIN_END} title=${cur>=RULES.WIN_END?'Already past 9:00. Use Restart day.':''}>Jump to 9:00</button>
+        <button id="simend" onClick=${()=>stepSim(RULES.FLAT-cur)} disabled=${simRun||!sim.current||dayDone}>Finish day</button>
+        <button id="simrestart" onClick=${restartDay} disabled=${!sim.current}>Restart day</button>
+        ${mode==='sim' && html`<button id="simnew" onClick=${()=>{ setSimRun(false); newSimDay(); }}>New random day</button>`}
+        <label htmlFor="simspd">Speed</label><input id="simspd" type="range" min="2" max="120" value=${simSpeed} onChange=${e=>setSimSpeed(+e.target.value)}/>
+        <span className="note num">${simSpeed} min/s</span>
+        ${mode==='replay' && html`<span className="note">${replayMsg}</span>`}`
+      : html`
+        <button id="refresh" className="primary" onClick=${()=>refreshLive(true)} disabled=${busy}>${busy?'Refreshing…':'Refresh now'}</button>
+        <span className="note">Auto-refresh every 30 s 8:15 AM–2:45 PM CT; after-hours prices every minute to 7 PM. ${liveMsg}</span>`}
+      <span className="sep"></span>
+      <span className="riskin"><label htmlFor="budget">Max $ per play</label><input id="budget" type="number" min="100" step="100" inputMode="numeric" value=${budget} onChange=${e=>setBudget(Math.max(0,+e.target.value||0))}/></span>
+      <span className="note">Contracts sized to fit (max 3, at least 1)</span>
+      <span className="sep"></span>
+      <label htmlFor="sound">Alerts</label>
+      <select id="sound" value=${sound} onChange=${e=>pickSound(e.target.value)}><option value="off">Off</option><option value="ching">Sounds</option><option value="voice">Sounds + voice</option></select>
+      ${sound!=='off' && !soundReady && html`<button className="primary" onClick=${armSound}>Tap to turn sound on</button>`}
+      ${sound!=='off' && html`<button className=${muted?'mutebtn on':'mutebtn'} onClick=${()=>setMuteUntil(muted?0:Date.now()+3600e3)} aria-pressed=${muted}>${muted?'🔕 Muted until '+hms(muteUntil).replace(/:\d\d (?=[AP]M)/,' ')+' · unmute':'🔔 Mute 1 hour'}</button>`}
+      ${sound!=='off' && html`<details className="snd"><summary>Sound settings ▾</summary><div className="sndbody">
+        <label className="note" style=${{display:'flex',alignItems:'center',gap:'5px',textTransform:'none',letterSpacing:0}}><input type="checkbox" checked=${fiveSound} onChange=${e=>setFiveSound(e.target.checked)}/> 5-MIN sound</label>
+        <label className="note" style=${{display:'flex',alignItems:'center',gap:'5px',textTransform:'none',letterSpacing:0}}><input type="checkbox" checked=${techSound} onChange=${e=>setTechSound(e.target.checked)}/> TECH GO sound</label>
+        ${soundReady && html`<button className="ghost" onClick=${()=>{ chaChing(); if(sound==='voice') sayGo('TSLA',-1); }}>Test GO IN</button>
+          <button className="ghost" onClick=${()=>{ fiveTone(); if(sound==='voice') sayFive('NVDA',1); }}>Test 5-MIN</button>
+          <button className="ghost" onClick=${()=>{ techDing(); if(sound==='voice') sayTech('NVDA',1); }}>Test TECH GO</button>
+          <button className="ghost" onClick=${()=>{ tpTone(); if(sound==='voice') sayLine('N V D A, five minute play, target hit'); }}>Test target</button>
+          <button className="ghost" onClick=${()=>{ stopTone(); if(sound==='voice') sayLine('T S L A, GO IN, stopped out'); }}>Test stop</button>
+          <button className="ghost" onClick=${()=>{ fadeTone(); if(sound==='voice') sayFade('AMD'); }}>Test fade</button>`}
+      </div></details>`}
+      <span className="sep"></span>
+      <label>Cards</label>
+      <span className="seg" role="group" aria-label="Card detail">${[['simple','Simple'],['full','Full detail']].map(([k,l])=>html`<button key=${k} className=${detail===k?'on':''} aria-pressed=${detail===k} onClick=${()=>setDetail(k)}>${l}</button>`)}</span>
+    </div>
+
+    <${TodayPlays} T=${T} budget=${budget} mode=${mode}/>
+
+    <div className="cards">${cardOrder(T).map(s=>T[s]? html`<${Card} key=${s} t=${T[s]} budget=${budget} mode=${mode} detail=${detail} flash=${(flashUntil.current[s]||0)>now}/>` : html`<article key=${s} className="card"><span className="sym">${s}</span><span className="note">${mode==='live'?'Waiting for the first refresh.':(mode==='replay'?'Pick a day and press Load day.':'Loading the simulated session.')}</span></article>`)}</div>
+
+    ${mode==='live' && html`<${PnlSummary} rows=${paper} budget=${budget}/>`}
+
+    ${mode!=='live' && sim.current && html`<${Scorecard} T=${T} budget=${budget} realOpt=${realOpt} mode=${mode} done=${dayDone}/>`}
+
+    <${PaperLog} db=${db} rows=${paper} dbState=${dbState} budget=${budget}/>
+    <${RealLog} rows=${real} paper=${paper} onSync=${syncWebull} syncMsg=${syncMsg} canSync=${!!mcp && !!db}/>
+
+    <div className="stack">
+      <section className="panel">
+        <div className="row"><h2>Live rules</h2><span className="note">tuned on 12 months of 1-minute data</span></div>
+        <div className="rules">
+          <div className="rule"><div className="k"><span>Trigger window</span><b>8:45–9:00 CT</b></div><div className="v">Prime window. GO IN keeps firing to 2:00 PM on all 11 tickers, first signal per ticker per day.</div></div>
+          <div className="rule"><div className="k"><span>Breakout</span><b>${W.breakout} pts</b></div><div className="v">Price beyond the 8:30–8:45 range by 0.2 × ATR</div></div>
+          <div className="rule"><div className="k"><span>Volume delta *</span><b>${W.flow} pts</b></div><div className="v">Net buying or selling ≥ 10% of session volume so far</div></div>
+          <div className="rule"><div className="k"><span>Jev news *</span><b>${W.jev} pts</b></div><div className="v">Jev probability ≥ 65% in the trade direction</div></div>
+          <div className="rule"><div className="k"><span>Spread</span><b>${W.spread} pts</b></div><div className="v">30-day contract spread ≤ 5% of mid</div></div>
+          <div className="rule"><div className="k"><span>GO IN</span><b>≥ 75</b></div><div className="v">* Volume and Jev must both agree with the direction</div></div>
+          <div className="rule"><div className="k"><span>5-MIN GO</span><b>5-min close</b></div><div className="v">A 5-minute candle (8:45–8:49, 8:50–8:54 …) closes beyond the trigger with volume delta past ±10%. Own entry at that close; Jev recorded, not required.</div></div>
+          <div className="rule"><div className="k"><span>TECH GO</span><b>math only</b></div><div className="v">Breakout + volume passed on the 1-minute bar but Jev was under 65%. Tracked for comparison.</div></div>
+          <div className="rule"><div className="k"><span>Stop / target</span><b>−0.5 / +1.5 ATR</b></div><div className="v">Price lines set at entry. No score-based exit.</div></div>
+          <div className="rule"><div className="k"><span>Contract · exit</span><b>ATM · 30 days</b></div><div className="v">Strike nearest price, expiry nearest 30 days. Flat 2:40 PM CT if neither line hits.</div></div>
+        </div>
+      </section>
+      <section className="panel">
+        <div className="row"><h2>Backtest baseline</h2><span className="note">All 11 tickers · Oct 2025 – Oct 2026</span></div>
+        <div className="tabs" role="tablist">${[['win','8:45–9:00 window'],['day','All day 8:45–2:00']].map(([k,l])=>html`<button key=${k} role="tab" aria-selected=${btView===k} className=${btView===k?'on':''} onClick=${()=>setBtView(k)}>${l}</button>`)}</div>
+        <div className="tbl"><table>
+          <thead><tr><th>Ticker</th><th>Trades/yr</th><th>Win</th><th>Option/trade</th><th>Profit factor</th><th>Oct–Apr</th><th>Apr–Oct</th></tr></thead>
+          <tbody>${[...PRIMARY, ...REF, 'NVDA+TSLA', 'All 11'].map(k=>{ const r=BT11[btView][k]; const tot=k.includes('+')||k.startsWith('All');
+            return html`<tr key=${k} style=${tot?{borderTop:'1px solid var(--line-2)',fontWeight:600}:{}}><td style=${{fontFamily:'var(--f-body)',textAlign:'left'}}>${k}${PRIMARY.includes(k)?' ·  traded':''}</td><td>${r[0]}</td><td>${r[1].toFixed(0)}%</td><td className=${r[2]>=0?'up':'dn'}>${pct(r[2])}</td><td className=${r[3]>=1.2?'up':(r[3]<1?'dn':'')}>${r[3].toFixed(2)}</td><td>${pct(r[4])}</td><td>${pct(r[5])}</td></tr>`; })}</tbody>
+        </table></div>
+        <div className="note">Breakout + volume delta, 0.5 ATR stop, 1.5 ATR target, flat 2:40, option costs from ~30-day ATM quotes (for 7 tickers, today's quotes stand in for the whole year). Jev has no history, so it is not in these numbers. All day = first signal per ticker from 8:45 to 2:00. Only NVDA, TSLA, MU and PLTR were positive in the window; all day, only MU stayed clearly positive. The paper log is the real test.</div>
+        <div className="note num">5-minute candle-close entry, same exits: NVDA + TSLA 8:45–9:00 · 30 trades/yr · 57% wins · +7.1%/trade · PF 2.03 (1-min: 44 · 52% · +3.0% · 1.37). NVDA + TSLA all day · PF 1.18 (1-min 1.00). All 11 window · PF 0.92 (1-min 0.84). All 11 all day · PF 0.69 (same).</div>
+      </section>
+    </div>
+
+
+    <footer>Live mode reads 1-minute bars, news and the option chain from Massive and scores the headlines with Jev, through the servers on your Mac. It only works in the Claude desktop app there. Volume delta is estimated from 1-minute bars (close position within each bar's range). Option values in the projections use the contract's delta, gamma and theta. They are estimates, not quotes. Research and paper trading only.</footer>
+  </div>`;
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(html`<${App}/>`);
+})();
+</script>
+
+</body></html>

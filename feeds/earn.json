@@ -1,0 +1,426 @@
+{
+"asOf": "2026-11-05",
+"source": "TradingView earnings calendar",
+"map": {
+"AAPL": {
+"date": "2027-02-04",
+"when": "unk",
+"confirmed": false
+},
+"MSFT": {
+"date": "2027-01-26",
+"when": "unk",
+"confirmed": false
+},
+"NVDA": {
+"date": "2026-11-17",
+"when": "amc",
+"confirmed": true
+},
+"AMZN": {
+"date": "2027-02-04",
+"when": "unk",
+"confirmed": false
+},
+"GOOGL": {
+"date": "2027-02-02",
+"when": "unk",
+"confirmed": false
+},
+"META": {
+"date": "2027-02-03",
+"when": "unk",
+"confirmed": false
+},
+"TSLA": {
+"date": "2027-02-03",
+"when": "unk",
+"confirmed": false
+},
+"AVGO": {
+"date": "2026-12-10",
+"when": "unk",
+"confirmed": false
+},
+"AMD": {
+"date": "2027-02-02",
+"when": "unk",
+"confirmed": false
+},
+"MU": {
+"date": "2026-12-23",
+"when": "unk",
+"confirmed": false
+},
+"INTC": {
+"date": "2027-01-28",
+"when": "unk",
+"confirmed": false
+},
+"QCOM": {
+"date": "2027-02-03",
+"when": "unk",
+"confirmed": false
+},
+"ARM": {
+"date": "2027-02-03",
+"when": "unk",
+"confirmed": false
+},
+"SMCI": {
+"date": "2027-02-02",
+"when": "unk",
+"confirmed": false
+},
+"MRVL": {
+"date": "2026-11-26",
+"when": "unk",
+"confirmed": false
+},
+"LRCX": {
+"date": "2027-01-27",
+"when": "unk",
+"confirmed": false
+},
+"AMAT": {
+"date": "2026-11-12",
+"when": "amc",
+"confirmed": true
+},
+"KLAC": {
+"date": "2027-02-04",
+"when": "unk",
+"confirmed": false
+},
+"ADBE": {
+"date": "2026-12-09",
+"when": "amc",
+"confirmed": true
+},
+"CRWD": {
+"date": "2026-12-01",
+"when": "unk",
+"confirmed": false
+},
+"PANW": {
+"date": "2026-11-18",
+"when": "amc",
+"confirmed": true
+},
+"DDOG": {
+"date": "2027-02-18",
+"when": "unk",
+"confirmed": false
+},
+"SHOP": {
+"date": "2027-02-17",
+"when": "unk",
+"confirmed": false
+},
+"ABNB": {
+"date": "2026-11-05",
+"when": "amc",
+"confirmed": true
+},
+"NFLX": {
+"date": "2027-01-26",
+"when": "unk",
+"confirmed": false
+},
+"COIN": {
+"date": "2027-02-18",
+"when": "unk",
+"confirmed": false
+},
+"HOOD": {
+"date": "2027-02-16",
+"when": "unk",
+"confirmed": false
+},
+"MSTR": {
+"date": "2027-02-10",
+"when": "unk",
+"confirmed": false
+},
+"SOFI": {
+"date": "2027-02-01",
+"when": "unk",
+"confirmed": false
+},
+"PYPL": {
+"date": "2027-02-09",
+"when": "unk",
+"confirmed": false
+},
+"APP": {
+"date": "2027-02-17",
+"when": "unk",
+"confirmed": false
+},
+"AFRM": {
+"date": "2026-11-05",
+"when": "amc",
+"confirmed": true
+},
+"TTWO": {
+"date": "2026-11-09",
+"when": "amc",
+"confirmed": true
+},
+"COST": {
+"date": "2026-12-10",
+"when": "amc",
+"confirmed": true
+},
+"PEP": {
+"date": "2027-02-11",
+"when": "unk",
+"confirmed": false
+},
+"SBUX": {
+"date": "2027-02-02",
+"when": "unk",
+"confirmed": false
+},
+"PLTR": {
+"date": "2027-02-17",
+"when": "unk",
+"confirmed": false
+},
+"WMT": {
+"date": "2026-11-19",
+"when": "bmo",
+"confirmed": false
+},
+"RBLX": {
+"date": "2027-02-11",
+"when": "unk",
+"confirmed": false
+},
+"DELL": {
+"date": "2026-12-01",
+"when": "unk",
+"confirmed": false
+},
+"ANET": {
+"date": "2027-02-15",
+"when": "unk",
+"confirmed": false
+},
+"ORCL": {
+"date": "2026-12-14",
+"when": "unk",
+"confirmed": false
+},
+"CRM": {
+"date": "2026-12-08",
+"when": "unk",
+"confirmed": false
+},
+"NOW": {
+"date": "2027-01-27",
+"when": "unk",
+"confirmed": false
+},
+"SNOW": {
+"date": "2026-12-02",
+"when": "amc",
+"confirmed": true
+},
+"NET": {
+"date": "2026-11-05",
+"when": "amc",
+"confirmed": true
+},
+"UBER": {
+"date": "2027-02-10",
+"when": "unk",
+"confirmed": false
+},
+"DIS": {
+"date": "2026-11-17",
+"when": "bmo",
+"confirmed": false
+},
+"XYZ": {
+"date": "2027-02-25",
+"when": "unk",
+"confirmed": false
+},
+"RDDT": {
+"date": "2027-02-17",
+"when": "unk",
+"confirmed": false
+},
+"JPM": {
+"date": "2027-01-14",
+"when": "bmo",
+"confirmed": false
+},
+"GS": {
+"date": "2027-01-19",
+"when": "bmo",
+"confirmed": false
+},
+"BAC": {
+"date": "2027-01-15",
+"when": "bmo",
+"confirmed": false
+},
+"MS": {
+"date": "2027-01-14",
+"when": "bmo",
+"confirmed": false
+},
+"C": {
+"date": "2027-01-14",
+"when": "bmo",
+"confirmed": false
+},
+"WFC": {
+"date": "2027-01-14",
+"when": "bmo",
+"confirmed": false
+},
+"V": {
+"date": "2027-01-28",
+"when": "unk",
+"confirmed": false
+},
+"MA": {
+"date": "2027-01-28",
+"when": "unk",
+"confirmed": false
+},
+"AXP": {
+"date": "2027-01-22",
+"when": "unk",
+"confirmed": false
+},
+"UNH": {
+"date": "2027-01-20",
+"when": "unk",
+"confirmed": false
+},
+"LLY": {
+"date": "2027-02-10",
+"when": "unk",
+"confirmed": false
+},
+"ABBV": {
+"date": "2027-02-03",
+"when": "unk",
+"confirmed": false
+},
+"MRK": {
+"date": "2027-02-02",
+"when": "bmo",
+"confirmed": false
+},
+"PFE": {
+"date": "2027-02-02",
+"when": "unk",
+"confirmed": false
+},
+"JNJ": {
+"date": "2027-01-26",
+"when": "bmo",
+"confirmed": false
+},
+"TGT": {
+"date": "2026-11-18",
+"when": "bmo",
+"confirmed": false
+},
+"HD": {
+"date": "2026-11-17",
+"when": "bmo",
+"confirmed": false
+},
+"LOW": {
+"date": "2026-11-18",
+"when": "bmo",
+"confirmed": false
+},
+"NKE": {
+"date": "2026-12-17",
+"when": "unk",
+"confirmed": false
+},
+"MCD": {
+"date": "2027-01-28",
+"when": "unk",
+"confirmed": false
+},
+"KO": {
+"date": "2027-02-16",
+"when": "unk",
+"confirmed": false
+},
+"CAT": {
+"date": "2027-02-04",
+"when": "unk",
+"confirmed": false
+},
+"DE": {
+"date": "2026-11-25",
+"when": "unk",
+"confirmed": false
+},
+"GE": {
+"date": "2027-01-21",
+"when": "unk",
+"confirmed": false
+},
+"BA": {
+"date": "2027-01-27",
+"when": "unk",
+"confirmed": false
+},
+"LMT": {
+"date": "2027-01-26",
+"when": "unk",
+"confirmed": false
+},
+"RTX": {
+"date": "2027-01-26",
+"when": "unk",
+"confirmed": false
+},
+"XOM": {
+"date": "2027-02-02",
+"when": "unk",
+"confirmed": false
+},
+"CVX": {
+"date": "2027-01-22",
+"when": "unk",
+"confirmed": false
+},
+"OXY": {
+"date": "2026-11-09",
+"when": "amc",
+"confirmed": true
+},
+"SLB": {
+"date": "2027-01-15",
+"when": "unk",
+"confirmed": false
+},
+"COP": {
+"date": "2026-11-05",
+"when": "bmo",
+"confirmed": false
+},
+"FCX": {
+"date": "2027-01-27",
+"when": "unk",
+"confirmed": false
+},
+"NEM": {
+"date": "2027-02-25",
+"when": "unk",
+"confirmed": false
+}
+}
+}
