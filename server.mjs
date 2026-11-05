@@ -318,7 +318,7 @@ async function gitSync() {
     if (changed.includes('package.json')) GIT.install = true;
   }
   if (GIT.pending && quietHours()) {
-    log('applying update: restarting'); if (GIT.install) await new Promise(ok => execFile('npm', ['install', '--omit=dev', '--no-audit', '--no-fund'], { cwd: ROOT, timeout: 300000 }, () => ok()));
+    log('applying update: restarting'); if (GIT.install) await new Promise(ok => execFile('npm', ['ci', '--omit=dev', '--no-audit', '--no-fund'], { cwd: ROOT, timeout: 300000 }, () => ok()));
     process.exit(0); // systemd starts the new version
   }
 }

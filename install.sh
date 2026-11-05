@@ -40,7 +40,7 @@ echo "$MASSIVE_BIN"
 say "4/7 Getting the board software"
 if [ -d "$DIR/.git" ]; then git -C "$DIR" pull --ff-only -q; else git clone -q "$REPO" "$DIR"; fi
 cd "$DIR"
-npm install --omit=dev --no-audit --no-fund >/dev/null
+npm ci --omit=dev --no-audit --no-fund >/dev/null
 
 say "5/7 Installing the headless browser that keeps the boards running"
 npx --yes playwright install --with-deps chromium >/dev/null
