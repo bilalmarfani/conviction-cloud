@@ -48,17 +48,21 @@ const M = { client: null, connecting: null, okAt: 0, fails: 0, lastErr: null, ca
 async function massiveClient() {
   if (M.client) return M.client;
   if (M.connecting) return M.connecting;
+  if (M.startFailAt && Date.now() - M.startFailAt < 20000) throw new Error(M.lastStartErr || 'data server failed to start');
   M.connecting = (async () => {
     const env = { ...process.env, MASSIVE_API_KEY: CFG.massiveKey, HOME: process.env.HOME || '/root' };
     const transport = new StdioClientTransport({ command: CFG.massiveCmd, args: CFG.massiveArgs, env, stderr: 'pipe' });
     const c = new Client({ name: 'conviction-cloud', version: '1.0.0' });
     transport.onclose = () => { if (M.client === c) { M.client = null; log('massive: connection closed, will reconnect on next call'); } };
-    await c.connect(transport);
-    try { transport.stderr && transport.stderr.on('data', d => { const s = String(d).trim(); if (s) log('massive:', s.slice(0, 300)); }); } catch (e) { }
+    // capture the data server's own messages from the start, so a startup failure shows its reason
+    M.stderr = [];
+    try { transport.stderr && transport.stderr.on('data', d => { for (const ln of String(d).split('\n')) { const t = ln.trim(); if (!t) continue; M.stderr.push(t); if (M.stderr.length > 30) M.stderr.shift(); log('massive:', t.slice(0, 300)); } }); } catch (e) { }
+    try { await c.connect(transport); }
+    catch (e) { await new Promise(r => setTimeout(r, 300)); const tail = (M.stderr || []).slice(-4).join(' | '); throw new Error(e.message + (tail ? ' — ' + tail : '')); }
     M.client = c; log('massive: connected');
     return c;
   })();
-  try { return await M.connecting; } finally { M.connecting = null; }
+  try { const c = await M.connecting; M.startFailAt = 0; return c; } catch (e) { M.startFailAt = Date.now(); M.lastStartErr = e.message; throw e; } finally { M.connecting = null; }
 }
 async function callMassive(input) {
   M.calls++;
