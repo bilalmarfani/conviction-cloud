@@ -36,7 +36,7 @@ const CFG = {
 };
 const BOARDS = {
   v3: { file: 'boards/v3.html', title: 'Conviction Board v3', engineOnly: ['v3trades', 'v3signals'] },
-  v2: { file: 'boards/v2.html', title: 'Conviction Engine v2', engineOnly: ['paper', 'real'] },
+  v2: { file: 'boards/v2.html', title: 'Conviction Engine v2', engineOnly: ['paper', 'real', 'managed'] },
 };
 fs.mkdirSync(CFG.dataDir, { recursive: true });
 const LOG = [];
@@ -366,7 +366,9 @@ function boardHtml(board, engine) {
   const body = i >= 0 ? raw.slice(0, i) + inject + raw.slice(i) : inject + raw;
   return /^\s*<!doctype/i.test(body) ? body : '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body>' + body + '</body></html>';
 }
-function isLocal(req) { const a = req.socket.remoteAddress || ''; return a === '127.0.0.1' || a === '::1' || a === '::ffff:127.0.0.1'; }
+// Behind the HTTPS proxy (tools/https.sh) every request arrives from 127.0.0.1, so a forwarded request is never local:
+// it must sign in like any other visitor. Only the engine and on-machine tools connect directly.
+function isLocal(req) { if (req.headers['x-forwarded-for'] || req.headers['forwarded']) return false; const a = req.socket.remoteAddress || ''; return a === '127.0.0.1' || a === '::1' || a === '::ffff:127.0.0.1'; }
 function authed(req) {
   if (isLocal(req)) return true;
   if (!CFG.pass) return false;

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Read Conviction Engine v2's paper plays from the cloud server, for copying into the
-Claude artifact's "paper" collection. Read-only: it never changes anything on the server.
+"""Read Conviction Engine v2's paper plays ("paper") and managed test plays ("managed") from the cloud server,
+for copying into the same collections of the Claude artifact. Read-only: it never changes anything on the server.
 
 Setup on the Mac (once):
   ~/.conviction/server       the server address, e.g. http://203.0.113.5
@@ -8,9 +8,10 @@ Setup on the Mac (once):
 
   python3 sync_paper.py              JSON of plays that are new or changed since the last sync
   python3 sync_paper.py --full       every play from the last 14 days, whether or not it changed
-  python3 sync_paper.py --mark ID:H ..  record that these plays (id:h pairs from the output) were written to the artifact
+  python3 sync_paper.py --mark KEY:H ..  record that these docs (key:h pairs from the output) were written to the artifact
 
-Output: {"ok": true, "today": "YYYY-MM-DD", "changed": [{"id": ..., "h": ..., "data": {...}}, ...]}
+Output: {"ok": true, "today": "YYYY-MM-DD", "changed": [{"coll": "paper"|"managed", "id": ..., "key": ..., "h": ..., "data": {...}}, ...]}
+  write each one to the artifact at <coll>/<id>; key is what --mark takes
      or {"ok": false, "error": "..."}  (the key is never printed)
 """
 import datetime as dt
@@ -25,6 +26,7 @@ from zoneinfo import ZoneInfo
 DIR = os.path.expanduser(os.environ.get("CONVICTION_DIR", "~/.conviction"))
 STATE = os.path.join(DIR, "synced.json")
 DAYS = 14
+COLLS = ("paper", "managed")
 
 
 def out(obj):
@@ -65,7 +67,8 @@ def fetch(today):
         out({"ok": False, "error": f"server answered HTTP {e.code}" + (" (export key not accepted)" if e.code == 403 else "")})
     except (urllib.error.URLError, TimeoutError, ValueError) as e:
         out({"ok": False, "error": f"could not reach the server: {getattr(e, 'reason', e)}"})
-    return (body.get("collections") or {}).get("paper") or {}
+    cols = body.get("collections") or {}
+    return {c: cols.get(c) or {} for c in COLLS}
 
 
 def main(argv):
@@ -84,9 +87,13 @@ def main(argv):
         os.replace(tmp, STATE)
         out({"ok": True, "marked": marked})
     full = "--full" in argv
-    paper = fetch(today)
-    changed = [{"id": i, "h": digest(d), "data": d} for i, d in sorted(paper.items())
-               if isinstance(d, dict) and (full or state.get(i) != digest(d))]
+    docs = fetch(today)
+    changed = []
+    for c in COLLS:
+        for i, d in sorted(docs[c].items()):
+            key = i if c == "paper" else f"{c}/{i}"   # paper keys stay plain ids, as already recorded in synced.json
+            if isinstance(d, dict) and (full or state.get(key) != digest(d)):
+                changed.append({"coll": c, "id": i, "key": key, "h": digest(d), "data": d})
     out({"ok": True, "today": today, "changed": changed})
 
 

@@ -82,7 +82,7 @@ fi
 # read-only export key: lets Claude copy paper plays into the v2 artifact (see tools/sync_paper.py). Show it with: grep EXPORT_KEY /opt/conviction/.env
 [ -n "$(getv EXPORT_KEY)" ] || setv EXPORT_KEY "$(openssl rand -hex 24)"
 setv MASSIVE_CMD "$MASSIVE_BIN"
-setv PORT 80
+[ -n "$(getv PORT)" ] || setv PORT 80   # tools/https.sh moves it to 8080 behind Caddy; keep that on re-runs
 
 say "7/7 Starting the service"
 cat > /etc/systemd/system/conviction.service <<UNIT
@@ -111,11 +111,11 @@ systemctl daemon-reload
 systemctl enable conviction >/dev/null 2>&1
 systemctl restart conviction
 
-if ufw status | grep -q "Status: active"; then ufw allow 22/tcp >/dev/null; ufw allow 80/tcp >/dev/null; fi
+if ufw status | grep -q "Status: active"; then ufw allow 22/tcp >/dev/null; ufw allow 80/tcp >/dev/null; ufw allow 443/tcp >/dev/null; fi
 
 sleep 8
 IP=$(curl -s -4 https://api.ipify.org || hostname -I | awk '{print $1}')
-if curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1/healthz | grep -q 200; then
+if curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:$(getv PORT)/healthz | grep -q 200; then
   say "Done. Your boards are running."
   echo
   echo "   Open:      http://${IP}/"

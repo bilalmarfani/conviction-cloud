@@ -1076,6 +1076,225 @@ function PaperLog({db, rows: allRows, dbState, budget}){
   </section>`;
 }
 
+/* ======================= Managed test account (v2.1 rules, paper only) =======================
+   Same tickers, two setups all day, managed exits. Every play is priced twice from real option trades:
+   a ~30-day ATM contract at 1% risk, and the cheapest-useful same-day/next expiry (~$0.70, up to 10 contracts). */
+const MG = {START:'2026-10-23', LAST_ENTRY:13*60+30, COOL:15, MAXN:3, RISK:500, MAXPREM:2500, CHEAP:0.70, CHEAP_MAX:0.75, CHEAP_BUDGET:750, CHEAP_N:10, PSTOP:0.5};
+function mgEma(vals, n){ const k=2/(n+1); const out=[]; let e=null; for(const v of vals){ e = e==null? v : v*k+e*(1-k); out.push(e); } return out; }
+// bars: 1-min {min,o,h,l,c,v} for one session (CT minutes). Only pass completed bars. Returns plays (open ones last).
+function managedDay(barsIn, atr){
+  if(!(atr>0)) return [];
+  const seen={}; const b=[];
+  for(const x of [...barsIn].sort((p,q)=>p.min-q.min)){ if(x.min<RULES.OPEN || x.min>=15*60 || seen[x.min] || !Number.isFinite(x.c)) continue; seen[x.min]=1; b.push(x); }
+  const orb=b.filter(x=>x.min<RULES.OR_END); if(orb.length<10 || !b.some(x=>x.min>=RULES.OR_END-1)) return [];
+  const orHi=Math.max(...orb.map(x=>x.h)), orLo=Math.min(...orb.map(x=>x.l));
+  const up=orHi+RULES.ATR_K*atr, dn=orLo-RULES.ATR_K*atr;
+  let cv=0, vv=0, pv=0; const flow=[], vw=[];
+  for(const x of b){ const r=x.h-x.l; cv += r>0? x.v*((x.c-x.l)-(x.h-x.c))/r : 0; vv+=x.v; pv+=x.v*(x.h+x.l+x.c)/3; flow.push(vv>0?cv/vv:0); vw.push(vv>0?pv/vv:x.c); }
+  const B=[]; let cur=null; const plays=[]; let open=null, cool=0, orbArmed=true;
+  const close=(px, min, why)=>{ open.exit=px; open.exitMin=min; open.reason=why; open.open=false; cool=min+MG.COOL; open=null; };
+  for(let i=0;i<b.length;i++){ const x=b[i];
+    const k=Math.floor((x.min-RULES.OPEN)/5), end=(x.min-RULES.OPEN)%5===4;
+    if(!cur || cur.k!==k) cur={k, start:RULES.OPEN+5*k, o:x.o, h:x.h, l:x.l, c:x.c, v:x.v};
+    else { cur.h=Math.max(cur.h,x.h); cur.l=Math.min(cur.l,x.l); cur.c=x.c; cur.v+=x.v; }
+    if(end) B.push({...cur, end:x.min, vw:vw[i]});
+    // manage the open play on bars after its entry
+    if(open && x.min>open.entryMin){ const s=open.side;
+      if(s>0? x.l<=open.stop : x.h>=open.stop){ close(s>0? Math.min(x.o,open.stop) : Math.max(x.o,open.stop), x.min, open.partial?'breakeven':'stop'); }
+      else {
+        if(!open.partial && (s>0? x.h>=open.t1 : x.l<=open.t1)){ open.partial=true; open.t1Min=x.min; open.stop=open.entry; }
+        if(open.partial && (s>0? x.h>=open.t2 : x.l<=open.t2)) close(open.t2, x.min, 'target 2R');
+        else if(end && x.min>=open.entryMin+5 && (s>0? x.c<vw[i] : x.c>vw[i])) close(x.c, x.min, 'VWAP');
+        else if(x.min>=RULES.FLAT) close(x.c, x.min, 'flat 2:40');
+      }
+    }
+    if(!end) continue;
+    if(x.c<up && x.c>dn) orbArmed=true;
+    if(open || plays.length>=MG.MAXN || x.min<RULES.WIN_START+4 || x.min>MG.LAST_ENTRY || x.min<cool) continue;
+    const mk=(setup, side, R)=>{ const e=x.c; open={n:plays.length+1, setup, side, entryMin:x.min, entry:e, R, stop0:e-side*R, stop:e-side*R, t1:e+side*R, t2:e+side*2*R,
+      partial:false, t1Min:null, exit:null, exitMin:null, reason:null, open:true, flow:flow[i]}; plays.push(open); };
+    // 1) opening-range break on a 5-min close with volume delta (re-arms once price closes back inside the triggers)
+    if(orbArmed){ const f=flow[i]; const sd = (x.c>up && f>=RULES.FLOW_PCT) ? 1 : (x.c<dn && f<=-RULES.FLOW_PCT) ? -1 : 0;
+      if(sd){ mk('ORB', sd, RULES.STOP_ATR*atr); orbArmed=false; continue; } }
+    // 2) trend pullback to VWAP / 20 EMA, reclaimed on a 5-min close with volume
+    if(B.length>=4 && x.min>=9*60+4){ const cl=B.map(q=>q.c), e9=mgEma(cl,9), e20=mgEma(cl,20); const j=B.length-1, bb=B[j], pb=B[j-1], tag=0.15*atr;
+      const avgV=B.slice(Math.max(0,j-20),j).reduce((s2,q)=>s2+q.v,0)/Math.max(1,Math.min(20,j));
+      for(const sd of [1,-1]){
+        const trend = sd>0 ? (bb.c>bb.vw && e9[j]>e20[j]) : (bb.c<bb.vw && e9[j]<e20[j]); if(!trend) continue;
+        let touched=false, pl = sd>0? Infinity : -Infinity;
+        for(let q=Math.max(0,j-3); q<j; q++){ const z=B[q];
+          if(sd>0 && (z.l<=z.vw+tag || z.l<=e20[q]+tag)) touched=true;
+          if(sd<0 && (z.h>=z.vw-tag || z.h>=e20[q]-tag)) touched=true;
+          pl = sd>0? Math.min(pl,z.l) : Math.max(pl,z.h); }
+        pl = sd>0? Math.min(pl,bb.l) : Math.max(pl,bb.h);
+        const trig = sd>0 ? (bb.c>pb.h && bb.c>e9[j]) : (bb.c<pb.l && bb.c<e9[j]);
+        if(touched && trig && bb.v>=avgV){ let R=Math.abs(bb.c-(pl-sd*0.05*atr)); R=Math.min(Math.max(R,0.15*atr),0.6*atr); mk('Pullback', sd, R); }
+        break;
+      }
+    }
+  }
+  return plays;
+}
+const mgR = p => { if(p.exit==null || !(p.R>0)) return null; const r=p.side*(p.exit-p.entry)/p.R; return p.t1Min!=null ? 0.5+0.5*r : r; };
+function mgOptRows(res){ return parseCSV(resultText(res)).filter(r=>Number.isFinite(+r.t) && +r.t>0).map(r=>({min:ctParts(+r.t).min, o:+r.o, h:+r.h, l:+r.l, c:+r.c})).filter(x=>x.c>0).sort((p,q)=>p.min-q.min); }
+function mgAt(bars, m){ let v=null; for(const x of bars){ if(x.min<=m){ if(x.min>=m-20) v=x.c; } else break; } return v; }
+// Price one closed play from real option trades. call = the board's MCP call helper.
+async function priceManaged(call, date, sym, p){
+  const out={};
+  const bars = async tk => mgOptRows(await call('host:massive','call_api',{path:`/v2/aggs/ticker/${tk}/range/1/minute/${date}/${date}`, params:{adjusted:'true',sort:'asc',limit:50000}}));
+  const typ = p.side>0?'call':'put';
+  // leg 1: ATM, expiry nearest 30 days, sized at 1% risk (delta ~0.5), premium capped at $2,500
+  try{
+    const res=await call('host:massive','call_api',{path:'/v3/reference/options/contracts', params:{underlying_ticker:sym, as_of:date, contract_type:typ,
+      'expiration_date.gte':shiftDays(date,RULES.EXP_MIN), 'expiration_date.lte':shiftDays(date,RULES.EXP_MAX), 'strike_price.gte':Math.floor(p.entry*0.96), 'strike_price.lte':Math.ceil(p.entry*1.04), limit:250}});
+    const rows=parseCSV(resultText(res)).filter(r=>r.ticker&&r.expiration_date);
+    if(!rows.length) out.d30={skip:'no contract found'};
+    else {
+      const exp=[...new Set(rows.map(r=>r.expiration_date))].sort((x,y)=>Math.abs(dteOf(date,x)-RULES.DTE)-Math.abs(dteOf(date,y)-RULES.DTE))[0];
+      const c=rows.filter(r=>r.expiration_date===exp).sort((x,y)=>Math.abs(+x.strike_price-p.entry)-Math.abs(+y.strike_price-p.entry))[0];
+      const ob=await bars(c.ticker); const p0=mgAt(ob,p.entryMin), p1=mgAt(ob,p.exitMin), pT=p.t1Min!=null? mgAt(ob,p.t1Min) : null;
+      if(!(p0>0) || !(p1>0)) out.d30={ticker:c.ticker, skip:'contract did not trade at entry or exit'};
+      else { const n=Math.min(Math.max(1, Math.floor(MG.RISK/(0.5*p.R*100))), Math.floor(MG.MAXPREM/(p0*100)));
+        if(n<1) out.d30={ticker:c.ticker, p0, skip:'one contract costs more than $2,500'};
+        else { const half = (pT>0 && n>=2) ? Math.floor(n/2) : 0;
+          out.d30={ticker:c.ticker, expiry:exp, strike:+c.strike_price, n, p0, pT1: half?pT:null, half, p1, pnl:Math.round((half*(pT-p0)+(n-half)*(p1-p0))*100)}; } }
+    }
+  }catch(e){ out.d30={err:(e&&(e.code||e.message))||'error'}; }
+  // leg 2: nearest expiry (same day when listed), out of the money, premium closest to $0.70; -50% premium stop
+  try{
+    const res=await call('host:massive','call_api',{path:'/v3/reference/options/contracts', params:{underlying_ticker:sym, as_of:date, contract_type:typ,
+      'expiration_date.gte':date, 'expiration_date.lte':shiftDays(date,7),
+      ...(p.side>0 ? {'strike_price.gt':p.entry, 'strike_price.lte':Math.ceil(p.entry*1.15)} : {'strike_price.gte':Math.floor(p.entry*0.85), 'strike_price.lt':p.entry}),
+      sort:'expiration_date', order:'asc', limit:1000}});
+    const rows=parseCSV(resultText(res)).filter(r=>r.ticker&&r.expiration_date&&(p.side>0? +r.strike_price>p.entry : +r.strike_price<p.entry));
+    if(!rows.length) out.cheap={skip:'no short-dated contract found'};
+    else {
+      const exp=rows.map(r=>r.expiration_date).sort()[0];
+      const list=rows.filter(r=>r.expiration_date===exp).sort((x,y)=>Math.abs(+x.strike_price-p.entry)-Math.abs(+y.strike_price-p.entry));
+      const tried={};
+      const look=async k=>{ if(tried[k]) return tried[k]; const ob=await bars(list[k].ticker); return tried[k]={k, ob, p0:mgAt(ob,p.entryMin), c:list[k]}; };
+      let k=0;
+      for(let step=0; step<5 && k<list.length; step++){ const r=await look(k);
+        if(!(r.p0>0)){ k++; continue; }
+        if(r.p0>1.10){ const nk=k+Math.max(1, Math.round(Math.log(r.p0/MG.CHEAP)/Math.log(1.5))); if(nk>=list.length || tried[nk]) break; k=nk; }
+        else if(r.p0<0.40 && k>0 && !tried[k-1]) k--;
+        else break; }
+      const best=Object.values(tried).filter(r=>r.p0>0).sort((x,y)=>Math.abs(x.p0-MG.CHEAP)-Math.abs(y.p0-MG.CHEAP))[0];
+      if(!best || best.p0<0.20 || best.p0>1.60) out.cheap={expiry:exp, skip: best? 'closest premium was $'+best.p0.toFixed(2) : 'contracts did not trade at entry'};
+      else {
+        const p0=best.p0, n = p0<=MG.CHEAP_MAX ? MG.CHEAP_N : Math.max(1, Math.floor(MG.CHEAP_BUDGET/(p0*100)));
+        const stopPx=+(p0*(1-MG.PSTOP)).toFixed(4); let stopMin=null;
+        for(const x of best.ob){ if(x.min>p.entryMin && x.min<=p.exitMin && x.l<=stopPx){ stopMin=x.min; break; } }
+        const pT = (p.t1Min!=null && (stopMin==null || p.t1Min<stopMin)) ? mgAt(best.ob, p.t1Min) : null;
+        const half = pT>0 ? Math.floor(n/2) : 0;
+        const p1 = stopMin!=null ? stopPx : mgAt(best.ob, p.exitMin);
+        if(!(p1>=0)) out.cheap={ticker:best.c.ticker, skip:'no trade near the exit'};
+        else out.cheap={ticker:best.c.ticker, expiry:exp, zero: exp===date, strike:+best.c.strike_price, n, p0, pT1: half?pT:null, half, p1, stopMin,
+          pnl:Math.round((half*(pT-p0)+(n-half)*(p1-p0))*100)};
+      }
+    }
+  }catch(e){ out.cheap={err:(e&&(e.code||e.message))||'error'}; }
+  return out;
+}
+function mgDoc(date, sym, p, extra){
+  return {date, sym, n:p.n, setup:p.setup, side:p.side, entryMin:p.entryMin, entry:p.entry, R:p.R, stop0:p.stop0, t1:p.t1, t2:p.t2, t1Min:p.t1Min,
+    exit:p.exit, exitMin:p.exitMin, reason:p.reason, status:p.open?'open':'closed', rMult: mgR(p), flow:p.flow, source:'managed', updatedAt:new Date().toISOString(), ...(extra||{})};
+}
+
+function ManagedLog({rows, onBackfill, bfMsg, bfBusy, canRun}){
+  const plays = rows.filter(r=>r.kind!=='day').sort((a,b)=> a.date===b.date ? (b.entryMin||0)-(a.entryMin||0) : (a.date<b.date?1:-1));
+  const days = rows.filter(r=>r.kind==='day').length;
+  const leg = (L)=> !L ? html`<span className="note">pricing…</span>` : L.skip||L.err ? html`<span className="note">${L.skip||('error '+L.err)}</span>`
+    : html`<span>${L.n}× ${L.strike}${L.expiry?' '+L.expiry.slice(5):''}${L.zero?' 0DTE':''} · $${f2(L.p0)} → $${f2(L.p1)}${L.half?html` <span className="note">(${L.half} at $${f2(L.pT1)})</span>`:null}${L.stopMin!=null?html` <span className="note">−50% stop ${hm(L.stopMin)}</span>`:null}</span>`;
+  const usd = v => Number.isFinite(v) ? html`<span className=${v>=0?'up':'dn'}>${(v>=0?'+$':'−$')+Math.abs(Math.round(v)).toLocaleString('en-US')}</span>` : '–';
+  return html`<section className="panel" aria-label="Managed test account">
+    <div className="row"><h2>Managed test account · new rules</h2><span className="note">${plays.length} plays logged</span></div>
+    <div className="note">Runs next to the current rules on the same 11 tickers. <b>Entries all day:</b> the opening-range break on a 5-minute close (re-arms after price closes back inside the range), plus a trend pullback to VWAP or the 20 EMA reclaimed on a 5-minute close with volume. Up to 3 plays per ticker a day, one at a time, 15-minute cooldown after an exit, no new entries after 1:30 PM CT. <b>Exits:</b> half off at 1R and stop to breakeven, the rest at 2R, on a 5-minute close back through VWAP, or flat at 2:40. Each play is priced from real option trades twice: a ~30-day ATM contract at 1% risk ($500, premium capped at $2,500), and the nearest expiry (same day when listed) out of the money near $0.70, 10 contracts (fewer above $0.75), with a −50% premium stop.</div>
+    <div className="row" style=${{justifyContent:'flex-start',gap:'10px'}}>
+      <button className="primary" disabled=${bfBusy||!canRun} onClick=${onBackfill}>${bfBusy?'Rebuilding…':'Rebuild past days from Oct 23'}</button>
+      <span className="note">${bfMsg || (canRun? (days? days+' past days rebuilt. Press again to fill any new days.' : 'Replays every session since Oct 23 with real prices so the account starts with history. Takes several minutes; best after the close.') : (window.__VIEWER ? 'The server rebuilds missing past days by itself after the close.' : 'Needs the board open with Massive connected.'))}</span></div>
+    <div className="tbl"><table>
+      <thead><tr><th style=${{textAlign:'left'}}>Date</th><th style=${{textAlign:'left'}}>Ticker</th><th style=${{textAlign:'left'}}>Setup</th><th>In → out</th><th>Half at 1R</th><th style=${{textAlign:'left'}}>Exit</th><th>R</th><th style=${{textAlign:'left'}}>30-day leg</th><th>$</th><th style=${{textAlign:'left'}}>Cheap leg</th><th>$</th></tr></thead>
+      <tbody>${!plays.length ? html`<tr><td colSpan="11" style=${{textAlign:'left',color:'var(--dim)',fontFamily:'var(--f-body)'}}>No managed plays yet. They log during the session, or press Rebuild to replay past days.</td></tr>` :
+        plays.slice(0,80).map(r=>html`<tr key=${r.id}>
+          <td style=${{textAlign:'left'}}>${r.date.slice(5)}</td><td style=${{textAlign:'left'}}>${r.sym}${r.n>1?' #'+r.n:''}</td>
+          <td style=${{textAlign:'left'}}>${r.setup} · ${r.side>0?'calls':'puts'}${r.late?html` <span className="note">late</span>`:null}</td>
+          <td>${hm(r.entryMin)} → ${r.exitMin!=null?hm(r.exitMin):'open'}</td><td>${r.t1Min!=null?hm(r.t1Min):'–'}</td>
+          <td style=${{textAlign:'left'}}>${r.status==='open'?'holding':r.reason}</td><td className=${(r.rMult??0)>=0?'up':'dn'}>${r.rMult!=null?r.rMult.toFixed(2):'–'}</td>
+          <td style=${{textAlign:'left'}}>${r.status==='open'?'–':leg(r.legs&&r.legs.d30)}</td><td>${usd(r.legs&&r.legs.d30&&r.legs.d30.pnl)}</td>
+          <td style=${{textAlign:'left'}}>${r.status==='open'?'–':leg(r.legs&&r.legs.cheap)}</td><td>${usd(r.legs&&r.legs.cheap&&r.legs.cheap.pnl)}</td></tr>`)}</tbody>
+    </table></div>
+  </section>`;
+}
+
+/* ======================= Strategy accounts: one $50,000 paper account per strategy ======================= */
+const ACCT_START = 50000;
+const ACCTS = [
+  {k:'live', name:'GO IN', sub:'1-min entry, Jev confirmed', color:'var(--go)'},
+  {k:'five', name:'5-MIN', sub:'5-min candle close, Jev not required', color:'var(--five)'},
+  {k:'shadow', name:'TECH GO', sub:'1-min entry, Jev not confirmed', color:'var(--amber)'},
+  {k:'mg30', name:'MANAGED · 30-day', sub:'New rules: all-day entries, half at 1R, VWAP exit · ~30-day ATM at 1% risk', color:'var(--accent)'},
+  {k:'mg0', name:'MANAGED · cheap 0DTE', sub:'Same plays · nearest expiry ~$0.70 × 10 · −50% premium stop', color:'#c792ea'},
+];
+const acctUsd = v => (v>=0?'+$':'−$')+Math.abs(Math.round(v)).toLocaleString('en-US');
+const acctBal = v => '$'+Math.round(v).toLocaleString('en-US');
+function acctStats(list, today, monday){
+  const closed = list.filter(r=>r.status==='closed' && Number.isFinite(r.dollarPL)).sort((a,b)=> a.date===b.date ? (a.exitMin||0)-(b.exitMin||0) : (a.date<b.date?-1:1));
+  let eq=ACCT_START, peak=ACCT_START, dd=0, gw=0, gl=0, w=0; const curve=[ACCT_START];
+  for(const r of closed){ eq+=r.dollarPL; peak=Math.max(peak,eq); dd=Math.max(dd,peak-eq); curve.push(eq); if(r.dollarPL>0){gw+=r.dollarPL;w++;} else gl-=r.dollarPL; }
+  const byDay={}; for(const r of closed) byDay[r.date]=(byDay[r.date]||0)+r.dollarPL;
+  const sumIf=f=>closed.filter(f).reduce((s,r)=>s+r.dollarPL,0);
+  return {n:closed.length, w, win: closed.length? 100*w/closed.length : null, pf: gl>0? gw/gl : (gw>0?Infinity:null), bal:eq, realized:eq-ACCT_START,
+    today:sumIf(r=>r.date===today), week:sumIf(r=>r.date>=monday), open:list.filter(r=>r.status==='open' && r.date===today).length, stale:list.filter(r=>r.status==='open' && r.date<today).length, dd, ddPct: peak>0?100*dd/peak:0, curve, byDay};
+}
+function AcctSpark({pts, color}){
+  const Wd=300,H=46; if(pts.length<2) return html`<div className="note">Curve starts after the first closed trade.</div>`;
+  const mn=Math.min(ACCT_START,...pts), mx=Math.max(ACCT_START,...pts); const sx=i=>4+(i/(pts.length-1))*(Wd-8); const sy=v=>H-4-((v-mn)/((mx-mn)||1))*(H-8);
+  return html`<svg viewBox=${'0 0 '+Wd+' '+H} preserveAspectRatio="none" style=${{width:'100%',height:H+'px',display:'block'}} role="img" aria-label="Account balance after each closed trade">
+    <line x1="0" x2=${Wd} y1=${sy(ACCT_START)} y2=${sy(ACCT_START)} stroke="var(--line-2)" strokeDasharray="4 4"/>
+    <polyline points=${pts.map((v,i)=>sx(i)+','+sy(v)).join(' ')} fill="none" stroke=${color} strokeWidth="2" vectorEffect="non-scaling-stroke"/></svg>`;
+}
+function StrategyAccounts({rows, budget, managed=[]}){
+  const today = ctParts(Date.now()).date;
+  const d0 = new Date(today+'T12:00:00Z'); const monday = new Date(d0.getTime()-((d0.getUTCDay()+6)%7)*864e5).toISOString().slice(0,10);
+  const sig = rows.filter(r=>r.source!=='manual').map(r=>paperNorm(r,budget,'hold'));
+  for(const m of managed){ if(m.kind==='day') continue;
+    for(const [k,lk] of [['mg30','d30'],['mg0','cheap']]){ const L=m.legs&&m.legs[lk]; const ok=m.status==='closed' && L && Number.isFinite(L.pnl);
+      if(m.status==='open' || ok) sig.push({date:m.date, source:k, status: ok?'closed':'open', dollarPL: ok?L.pnl:null, exitMin:m.exitMin}); } }
+  const A = ACCTS.map(a=>({...a, st: acctStats(sig.filter(r=>r.source===a.k), today, monday)}));
+  const dates = [...new Set(sig.filter(r=>r.status==='closed').map(r=>r.date))].sort();
+  const first = sig.length ? sig.map(r=>r.date).sort()[0] : null;
+  const days = first ? Math.max(0,Math.floor((new Date(today+'T12:00:00Z')-new Date(first+'T12:00:00Z'))/864e5)) : 0;
+  const weeks = Math.min(6, days/7);
+  const run = {}; A.forEach(a=>run[a.k]=ACCT_START);
+  const dayRows = dates.map(d=>({d, cells:A.map(a=>{ const p=a.st.byDay[d]||0; run[a.k]+=p; return {p, bal:run[a.k], any: d in a.st.byDay}; })})).reverse();
+  return html`<section className="panel" aria-label="Strategy accounts">
+    <div className="row"><h2>Strategy accounts · $50,000 each</h2><span className="note num">${weeks.toFixed(1)} of 6 weeks${first?' · started '+first:''}</span></div>
+    <div className="prog"><div style=${{width:(weeks/6*100)+'%'}}></div></div>
+    <div style=${{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(240px,1fr))',gap:'10px'}}>
+      ${A.map(a=>{ const s=a.st; return html`<div key=${a.k} className="stat" style=${{borderTop:'3px solid '+a.color,display:'grid',gap:'6px',padding:'10px 12px'}}>
+        <div className="k" style=${{display:'flex',justifyContent:'space-between'}}><span style=${{color:a.color}}>${a.name}</span><span>${s.open?s.open+' open':''}</span></div>
+        <div className=${'v '+(s.realized>=0?'up':'dn')} style=${{fontSize:'24px'}}>${acctBal(s.bal)}</div>
+        <div className="note num">${acctUsd(s.realized)} (${(100*s.realized/ACCT_START).toFixed(2)}%) since start</div>
+        <div className="note num" style=${{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'2px 10px'}}>
+          <span>Today <b className=${s.today>=0?'up':'dn'}>${acctUsd(s.today)}</b></span><span>Week <b className=${s.week>=0?'up':'dn'}>${acctUsd(s.week)}</b></span>
+          <span>${s.n} closed · ${s.win!=null?s.win.toFixed(0)+'% win':'–'}</span><span>PF ${s.pf==null?'–':(s.pf===Infinity?'∞':s.pf.toFixed(2))}</span>
+          <span>Max DD ${acctUsd(-s.dd)} (${s.ddPct.toFixed(1)}%)</span><span>${s.stale? html`<span style=${{color:'var(--amber)'}}>${s.stale} never closed</span>`:''}</span></div>
+        <${AcctSpark} pts=${s.curve} color=${a.color}/>
+        <div className="note">${a.sub}</div></div>`; })}
+    </div>
+    <details open=${dayRows.length<=12} style=${{minWidth:0}}><summary>Daily balances · ${dayRows.length} trading day${dayRows.length===1?'':'s'}</summary>
+      ${!dayRows.length ? html`<div className="note">No closed paper trades yet.</div>` : html`<div className="tbl"><table>
+        <thead><tr><th style=${{textAlign:'left'}}>Date</th>${A.map(a=>html`<th key=${a.k} colSpan="2" style=${{color:a.color}}>${a.name}</th>`)}<th>All</th></tr>
+          <tr><th></th>${A.map(a=>html`<${React.Fragment} key=${a.k}><th>Day P&L</th><th>Balance</th></${React.Fragment}>`)}<th>Day P&L</th></tr></thead>
+        <tbody>${dayRows.map(r=>{ const tot=r.cells.reduce((s,c)=>s+c.p,0); return html`<tr key=${r.d}><td style=${{textAlign:'left'}}>${dateLabel(r.d)}</td>
+          ${r.cells.map((c,i)=>html`<${React.Fragment} key=${i}><td className=${c.any?(c.p>=0?'up':'dn'):''}>${c.any?acctUsd(c.p):'–'}</td><td>${acctBal(c.bal)}</td></${React.Fragment}>`)}
+          <td className=${tot>=0?'up':'dn'}>${acctUsd(tot)}</td></tr>`; })}</tbody></table></div>`}
+    </details>
+    <div className="note">Each strategy trades its own $50,000 paper account, so they can be compared head to head over the 6 weeks. The two MANAGED accounts use the new rules and real option trades (see the Managed test account panel). GO IN, 5-MIN and TECH GO count closed plays at the official hold exit (stop, target or 2:40), sized by Max $ per play (${'$'+(+budget).toLocaleString('en-US')}, 1–3 contracts) at the option mid, no commissions. Open plays are not counted until they close; plays from past days still marked open (never closed at 2:40) are left out and flagged. Manual fills and the Webull log are kept separate.</div>
+  </section>`;
+}
+
 /* ======================= App ======================= */
 function App(){
   const [mode,setMode]=useState('live');               // sim | live
@@ -1085,6 +1304,8 @@ function App(){
   const [dbState,setDbState]=useState('Connecting to the log…');
   const [paper,setPaper]=useState([]);
   const [real,setReal]=useState([]);
+  const [managed,setManaged]=useState([]); const mgRef=useRef({}); const mgBusy=useRef(false); const mgLast=useRef(0); const bfRef=useRef(null);
+  const [bfMsg,setBfMsg]=useState(''); const [bfBusy,setBfBusy]=useState(false);
   const [syncMsg,setSyncMsg]=useState('');
   const [tick,setTick]=useState(0);
   const [toasts,setToasts]=useState([]);
@@ -1133,7 +1354,8 @@ function App(){
       setDb(d); setDbState('Saved to this dashboard');
       off = d.collection('paper').onSnapshot(snap=>{ setPaper(snap.docs.map(x=>({id:x.id,...x.data()}))); }, e=>setDbState('Log stopped updating ('+e.code+')'));
       const off2 = d.collection('real').onSnapshot(snap=>{ setReal(snap.docs.map(x=>({id:x.id,...x.data()}))); }, ()=>{});
-      const o1=off; off=()=>{ o1&&o1(); off2&&off2(); };
+      const off3 = d.collection('managed').onSnapshot(snap=>{ const L=snap.docs.map(x=>({id:x.id,...x.data()})); const m={}; L.forEach(x=>m[x.id]=x); mgRef.current=m; setManaged(L); }, ()=>{});
+      const o1=off; off=()=>{ o1&&o1(); off2&&off2(); off3&&off3(); };
     })();
     return ()=>{ if(off) off(); };
   },[]);
@@ -1557,6 +1779,53 @@ function App(){
         priceReal(date, sym, x.side, x.entryMin, x.exitMin, x.entry).then(r=>setRealOpt(o=>({...o,[k]:r}))).catch(()=>setRealOpt(o=>({...o,[k]:{ticker:null}}))); } }
   });
 
+  /* ---------- managed test account: compute today's plays from the 1-minute bars, price closed ones from real option trades ---------- */
+  const runManaged = useCallback(async (today, nowMin)=>{
+    if(!db || !mcp || mgBusy.current || window.__VIEWER) return;   // on the server only the always-on engine copy computes and records managed plays
+    if(Date.now()-(mgLast.current||0) < 30e3) return; mgLast.current=Date.now(); mgBusy.current=true;
+    try{ let priced=0;
+      for(const sym of ALL){ const t=S.current[sym]; if(!t || !t.bars || !t.atr || t.date!==today) continue;
+        const plays=managedDay(nowMin<15*60 ? t.bars.filter(b=>b.min<nowMin) : t.bars, t.atr);
+        for(const p of plays){ const id=today+'-'+sym+'-M'+p.n; const ex=mgRef.current[id];
+          const pDir = t.pUp==null? null : (p.side>0? t.pUp : 1-t.pUp);
+          const base = {late: ex? !!ex.late : (nowMin-p.entryMin>6), jevDir: ex? (ex.jevDir??null) : pDir};
+          if(p.open){ if(!ex){ const doc=mgDoc(today,sym,p,base); mgRef.current[id]={id,...doc}; try{ await db.collection('managed').doc(id).set(doc); }catch(e){} } continue; }
+          if(ex && ex.status==='closed' && ex.exitMin===p.exitMin && ex.legs && ex.legs.d30 && ex.legs.cheap && !ex.legs.d30.err && !ex.legs.cheap.err) continue;
+          if(nowMin < p.exitMin+2 || priced>=(nowMin<RULES.FLAT?2:4)) continue;
+          priced++; let legs=null; try{ legs=await priceManaged(call, today, sym, p); }catch(e){ legs={d30:{err:'error'}, cheap:{err:'error'}}; }
+          const doc=mgDoc(today,sym,p,{...base, legs}); mgRef.current[id]={id,...doc};
+          try{ await db.collection('managed').doc(id).set(doc); }catch(e){} } }
+    } finally { mgBusy.current=false; }
+  },[db, mcp, call]);
+  const backfillManaged = useCallback(async ()=>{
+    if(!db || !mcp || bfBusy) return; setBfBusy(true);
+    try{ const today=ctParts(Date.now()).date; const dates=[]; let d=MG.START;
+      while(d<today){ const wd=new Date(d+'T12:00:00Z').getUTCDay(); if(wd>0 && wd<6 && !mgRef.current['day-'+d]) dates.push(d); d=shiftDays(d,1); }
+      if(!dates.length){ setBfMsg('All past days since Oct 23 are already rebuilt.'); return; }
+      let total=0, di=0;
+      for(const date of dates){ di++; let dayN=0, loaded=0, failed=[];
+        for(const sym of ALL){ setBfMsg('Day '+di+' of '+dates.length+' · '+dateLabel(date)+' · '+sym+'…');
+          try{ const dd=await loadDaily(sym,date); const bars=await loadMinutes(sym,date);
+            if(!bars.some(b=>b.min>=RULES.OPEN && b.min<15*60)) continue; loaded++;
+            for(const p of managedDay(bars, dd.atr)){ if(p.open) continue; const id=date+'-'+sym+'-M'+p.n; const ex=mgRef.current[id];
+              if(ex && ex.legs && ex.legs.d30 && ex.legs.cheap && !ex.legs.d30.err && !ex.legs.cheap.err) { dayN++; continue; }
+              let legs=null; try{ legs=await priceManaged(call, date, sym, p); }catch(e){ legs={d30:{err:'error'}, cheap:{err:'error'}}; }
+              const doc=mgDoc(date,sym,p,{late:true, rebuilt:true, jevDir:null, legs}); mgRef.current[id]={id,...doc};
+              await db.collection('managed').doc(id).set(doc); dayN++; total++; }
+          }catch(e){ failed.push(sym); } }
+        if(loaded && !failed.length){ const m={kind:'day', date, plays:dayN, at:new Date().toISOString()}; mgRef.current['day-'+date]={id:'day-'+date,...m}; try{ await db.collection('managed').doc('day-'+date).set(m); }catch(e){} }
+        if(failed.length===ALL.length){ setBfMsg('Stopped at '+dateLabel(date)+': could not load price data. Press Rebuild to try again.'); return; } }
+      setBfMsg('Rebuilt '+dates.length+' day'+(dates.length===1?'':'s')+' · '+total+' plays priced.');
+    }catch(e){ setBfMsg('Rebuild stopped ('+((e&&(e.code||e.message))||'error')+'). Press Rebuild to continue where it left off.'); }
+    finally{ setBfBusy(false); }
+  },[db, mcp, call, bfBusy, loadDaily, loadMinutes]);
+  // Server engine: rebuild missing past days on its own outside market hours (8:00 AM to 3:00 PM CT it leaves the data budget to the live session)
+  bfRef.current=backfillManaged;
+  useEffect(()=>{ if(!window.__CC || !window.__CC.engine || !db || !mcp) return;
+    const go=()=>{ const m=ctParts(Date.now()).min; if(m>=8*60 && m<15*60) return; bfRef.current && bfRef.current(); };
+    const t0=setTimeout(go, 20e3); const iv=setInterval(go, 30*60e3); return ()=>{ clearTimeout(t0); clearInterval(iv); };
+  },[db, mcp]);
+
   const busyRef=useRef(false);
   const refreshInner = useCallback(async (full)=>{
     if(!mcp){ setLiveMsg('No live connection in this window. Live data only works when this dashboard is open inside the Claude desktop app on your Mac (not in Chrome or the claude.ai website). To practice without it, switch Data to Simulated session.'); return; }
@@ -1576,7 +1845,7 @@ function App(){
           let d=today; for(let i=0;i<6;i++){ d=prevWeekday(d); const b2=await retry(()=>loadMinutes(sym,d)); if(b2.some(b=>b.min>=RULES.OPEN && b.min<15*60)){ bars=b2; lastDay=d; break; } }
           if(lastDay){ try{ const d2=await retry(()=>loadDaily(sym,lastDay)); t.prevClose=d2.prevClose; }catch(e){} }
         }
-        t.lastDay=lastDay; t.a = analyze(bars, t); t.err=null; t.noBars=!t.a; t.updatedAt=Date.now();
+        t.lastDay=lastDay; t.bars = lastDay ? null : bars; t.a = analyze(bars, t); t.err=null; t.noBars=!t.a; t.updatedAt=Date.now();
         if(lastDay){ t.status='CLOSEDDAY'; t.sc = t.a && t.a.orReady ? bestSide(t.a, t.atr, t.pUp, false) : null; } if(t.a && t.status==='IDLE') t.status = t.a.premarket ? 'PRE' : 'SCAN';
       }catch(e){ t.err=(e&&(e.code||e.message))||String(e)||'error'; t.errFull=(()=>{ try{ return (e&&e.message)||JSON.stringify(e).slice(0,200); }catch(x){ return String(e); } })(); errs[sym]=t.err; try{ console.error('[conviction] '+sym, e); }catch(x){} }
       setTick(x=>x+1);
@@ -1594,6 +1863,7 @@ function App(){
       for(const sym of order){ const t=S.current[sym]; if(!t||!t.a||errs[sym]) continue;
         restoreToday(t, sym, today);
         evaluate(t, nowMin, persistLive, persistShadow, persistFive); }   // closes after 2:45 (reload, late start) are saved for every tier, not only 5-MIN
+      await runManaged(today, nowMin);
       setLiveMsg('Session closed · after-hours prices updated '+hm(ctParts(Date.now()).min)+' CT'); setBusy(false); setTick(x=>x+1); return; }
     if(full) setLiveMsg('Prices loaded. Reading news (Jev) and option chains…');
     // Phase 2: Jev, contract routing and trade state, one ticker at a time (primary first)
@@ -1646,6 +1916,7 @@ function App(){
       }catch(e){ errs[sym]=e&&e.code||'error'; }
       setTick(x=>x+1);
     }
+    await runManaged(today, nowMin);
     const bad=Object.keys(errs);
     if(!bad.length) setLiveMsg('Updated '+hm(ctParts(Date.now()).min)+' CT');
     else {
@@ -1657,7 +1928,7 @@ function App(){
       setLiveMsg((bad.length===ALL.length?'':'Updated '+hm(ctParts(Date.now()).min)+' CT except '+bad.join(', ')+'. ')+why);
     }
     setBusy(false); setTick(x=>x+1);
-  },[mcp, call, paper, loadDaily, loadMinutes, loadJev, loadRoute, quoteContract, evaluate, persistLive, persistShadow, persistFive]);
+  },[mcp, call, paper, loadDaily, loadMinutes, loadJev, loadRoute, quoteContract, evaluate, persistLive, persistShadow, persistFive, runManaged]);
   const refreshLive = useCallback(async (full)=>{
     if(busyRef.current) return; busyRef.current=true;
     try{ await refreshInner(full); } finally { busyRef.current=false; }
@@ -1773,6 +2044,8 @@ function App(){
       <span className="seg" role="group" aria-label="Card detail">${[['simple','Simple'],['full','Full detail']].map(([k,l])=>html`<button key=${k} className=${detail===k?'on':''} aria-pressed=${detail===k} onClick=${()=>setDetail(k)}>${l}</button>`)}</span>
     </div>
 
+    <${StrategyAccounts} rows=${paper} budget=${budget} managed=${managed}/>
+
     <${TodayPlays} T=${T} budget=${budget} mode=${mode}/>
 
     <div className="cards">${cardOrder(T).map(s=>T[s]? html`<${Card} key=${s} t=${T[s]} budget=${budget} mode=${mode} detail=${detail} flash=${(flashUntil.current[s]||0)>now}/>` : html`<article key=${s} className="card"><span className="sym">${s}</span><span className="note">${mode==='live'?'Waiting for the first refresh.':(mode==='replay'?'Pick a day and press Load day.':'Loading the simulated session.')}</span></article>`)}</div>
@@ -1781,6 +2054,7 @@ function App(){
 
     ${mode!=='live' && sim.current && html`<${Scorecard} T=${T} budget=${budget} realOpt=${realOpt} mode=${mode} done=${dayDone}/>`}
 
+    <${ManagedLog} rows=${managed} onBackfill=${backfillManaged} bfMsg=${bfMsg} bfBusy=${bfBusy} canRun=${!!db && !!mcp && !window.__VIEWER}/>
     <${PaperLog} db=${db} rows=${paper} dbState=${dbState} budget=${budget}/>
     <${RealLog} rows=${real} paper=${paper} onSync=${syncWebull} syncMsg=${syncMsg} canSync=${!!mcp && !!db}/>
 
