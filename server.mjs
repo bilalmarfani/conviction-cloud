@@ -13,6 +13,7 @@ import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { createBroker } from './broker.mjs';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 loadEnv(path.join(ROOT, '.env'));
@@ -132,7 +133,7 @@ function dbSave(board) { DIRTY.add(board); }
 setInterval(() => { for (const b of [...DIRTY]) { DIRTY.delete(b); const f = dbFile(b); const tmp = f + '.tmp'; try { fs.writeFileSync(tmp, JSON.stringify(DB[b])); fs.renameSync(tmp, f); } catch (e) { log('db save failed', b, e.message); } } }, 700);
 // daily backup, keep 14
 setInterval(() => { const d = new Date().toISOString().slice(0, 10); const dir = path.join(CFG.dataDir, 'backups'); fs.mkdirSync(dir, { recursive: true });
-  for (const b of Object.keys(BOARDS)) { const f = path.join(dir, `db-${b}-${d}.json`); if (!fs.existsSync(f) && DB[b]) fs.writeFileSync(f, JSON.stringify(DB[b])); }
+  for (const b of [...Object.keys(BOARDS), 'broker']) { const f = path.join(dir, `db-${b}-${d}.json`); if (!fs.existsSync(f) && DB[b]) fs.writeFileSync(f, JSON.stringify(DB[b])); }
   const files = fs.readdirSync(dir).sort(); for (const b of Object.keys(BOARDS)) { const mine = files.filter(x => x.startsWith(`db-${b}-`)); while (mine.length > 14) fs.unlinkSync(path.join(dir, mine.shift())); } }, 3600e3);
 const pushTimers = {};
 function pushColl(board, coll) {
@@ -146,6 +147,10 @@ function dbWrite(board, coll, id, op, data) {
   else if (op === 'delete') delete c[id];
   else throw { code: 'bad_request', message: 'Unknown op' };
   dbSave(board); pushColl(board, coll);
+  // Alpaca paper execution mirrors the plays of three strategies (broker.mjs); it never blocks or changes the write
+  if (BROKER && ((board === 'v2' && coll === 'paper') || (board === 'v3' && coll === 'v3trades')) && op !== 'delete') {
+    BROKER.onDoc(board, coll, id, c[id]).catch(e => log('broker:', e.message));
+  }
 }
 function deepMerge(a, b) { if (!b || typeof b !== 'object' || Array.isArray(b)) return b; const o = { ...(a && typeof a === 'object' && !Array.isArray(a) ? a : {}) }; for (const [k, v] of Object.entries(b)) { if (v && typeof v === 'object' && v.__delete__) delete o[k]; else o[k] = v; } return o; }
 
@@ -188,6 +193,27 @@ function csvParse(text) {
 }
 const csvCell = v => { const s = v == null ? '' : String(v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
 const numCell = x => Number.isFinite(+x) ? String(+x) : '';
+
+/* ------------------------------------------------------------------ Alpaca paper execution (broker.mjs) */
+// Live option bid/ask comes from Massive (real-time OPRA), never from Alpaca's data feed.
+async function optionQuote(sym, occ) {
+  const r = await callMassive({ path: `/v3/snapshot/options/${sym}/${occ}` });
+  const row = csvParse(r.payload.result).rows[0]; if (!row) return null;
+  const n = k => (row[k] === undefined || row[k] === '' ? null : +row[k]);
+  const ns = n('last_quote_last_updated');
+  return { bid: n('last_quote_bid'), ask: n('last_quote_ask'), bidSize: n('last_quote_bid_size'), askSize: n('last_quote_ask_size'), at: ns ? Math.round(ns / 1e6) : null };
+}
+let BROKER = null;
+function brokerStart() {
+  BROKER = createBroker({ quote: optionQuote, store: { data: dbOf('broker'), save: () => dbSave('broker') }, log,
+    haltFile: path.join(CFG.dataDir, 'HALT_TRADING'), fs });
+  if (!BROKER.config.on) { log('broker: off (BROKER=off)'); return; }
+  BROKER.connect().then(() => {
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Chicago' });
+    for (const [b, coll] of [['v2', 'paper'], ['v3', 'v3trades']]) for (const [id, d] of Object.entries(dbOf(b)[coll] || {})) if (d && d.date === today) BROKER.onDoc(b, coll, id, d).catch(() => {});
+  });
+  setInterval(() => BROKER.tick().catch(e => log('broker tick:', e.message)), 1000);
+}
 
 function streamStart() {
   if (!CFG.stream) { ST.state = 'off'; return; }
@@ -398,12 +424,13 @@ const server = http.createServer(async (req, res) => {
     const u = new URL(req.url, 'http://x');
     if (u.pathname === '/healthz') return send(res, 200, { ok: true });
     // Read-only export for Claude's analysis: paper trades, signals, scans, backtests and health. Needs EXPORT_KEY; cannot change anything.
-    const xm = /^\/export\/(v2|v3|health)$/.exec(u.pathname);
+    const xm = /^\/export\/(v2|v3|health|broker)$/.exec(u.pathname);
     if (xm) {
       const k = String(req.headers['x-export-key'] || u.searchParams.get('key') || '');
       const ok = CFG.exportKey.length >= 20 && k.length === CFG.exportKey.length && crypto.timingSafeEqual(Buffer.from(k), Buffer.from(CFG.exportKey));
       if (!ok) return send(res, 403, { error: 'export key required' });
       if (xm[1] === 'health') { const h = health(); return send(res, 200, h); }
+      if (xm[1] === 'broker') return send(res, 200, { status: BROKER ? BROKER.status() : null, ledger: dbOf('broker') });
       const since = u.searchParams.get('since') || '';
       const d = dbOf(xm[1]); const out = {};
       for (const [coll, docs] of Object.entries(d)) { out[coll] = {}; for (const [id, doc] of Object.entries(docs)) { if (!since || !/^\d{4}-\d\d-\d\d/.test(id) || id.slice(0, 10) >= since) out[coll][id] = doc; } }
@@ -482,6 +509,7 @@ function health() {
       events: ST.events, answeredFromStream: ST.served, sentToMassive: ST.passed, lastErr: ST.lastErr },
     engine: ENG.status(),
     data: { v3Trades: Object.keys(v3.v3trades || {}).length, v3Open: open3, v2Paper: Object.keys(v2.paper || {}).length, earningsAsOf: ((v3.v3earn || {}).next || {}).asOf || null, crowdAsOf: ((v3.v3earn || {}).crowd || {}).asOf || null },
+    broker: BROKER ? BROKER.status() : null,
     version: GIT.head, log: LOG.slice(-40),
   };
 }
@@ -501,6 +529,7 @@ a.b b{font-size:18px}.ok{color:var(--go)}.bad{color:var(--warn)}ul{padding-left:
 <li>Market data (Massive): <span class="${h.massive.lastOkAgoSec != null && h.massive.lastOkAgoSec < 120 ? 'ok' : 'bad'}">${h.massive.keySet ? 'last good reply ' + ago(h.massive.lastOkAgoSec) : 'API key missing'}</span>${h.massive.lastErr ? ' · last problem: ' + escapeHtml(String(h.massive.lastErr).slice(0, 140)) : ''}</li>
 <li>Live stream: ${h.stream.live ? `<span class="ok">on</span> · ${h.stream.tickers} tickers · last update ${ago(h.stream.lastDataAgoSec)} · ${h.stream.answeredFromStream} requests answered from the stream, ${h.stream.sentToMassive} sent to Massive`
     : `<span class="bad">${escapeHtml(h.stream.state)}</span> · boards use regular Massive requests`}${h.stream.lastErr ? ' · ' + escapeHtml(String(h.stream.lastErr).slice(0, 180)) : ''}</li>
+<li>Alpaca paper trading: ${!h.broker ? 'not started' : !h.broker.on ? 'off' : (h.broker.halted ? '<b>halted</b> (no new entries) · ' : '') + Object.values(h.broker.accounts).map(a => `<br>&nbsp;&nbsp;<b>${a.name}</b>: ${a.connected ? `<span class="ok">connected</span>${a.info && a.info.number ? ' (…' + a.info.number + ')' : ''} · today ${a.today.plays} plays, ${a.today.fills} fills, ${a.today.skipped} skipped · realized ${a.today.realized >= 0 ? '+' : '−'}$${Math.abs(a.today.realized)} · slippage vs live mid $${a.today.slipVsMidUsd}` : String(a.why || 'not connected').replace(/[<>&]/g, '')}`).join('')}</li>
 ${pg || '<li>Engine not started</li>'}
 <li>Jev news score: ${h.jev.on ? 'on' : 'off (no Anthropic API key)'}</li>
 <li>v3 paper trades: ${h.data.v3Trades} (${h.data.v3Open} open) · v2 log entries: ${h.data.v2Paper}</li>
@@ -588,6 +617,7 @@ server.listen(CFG.port, CFG.host, async () => {
   setInterval(() => gitSync().catch(e => log('git', e.message)), 15 * 60000);
   massiveClient().catch(e => log('massive start failed:', e.message));
   streamStart();
+  brokerStart();
   ENG.start();
 });
 for (const sig of ['SIGTERM', 'SIGINT']) process.on(sig, () => { for (const b of [...DIRTY]) { try { fs.writeFileSync(dbFile(b), JSON.stringify(DB[b])); } catch (e) { } } process.exit(0); });
