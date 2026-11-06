@@ -1139,12 +1139,32 @@ function managedDay(barsIn, atr){
 const mgR = p => { if(p.exit==null || !(p.R>0)) return null; const r=p.side*(p.exit-p.entry)/p.R; return p.t1Min!=null ? 0.5+0.5*r : r; };
 function mgOptRows(res){ return parseCSV(resultText(res)).filter(r=>Number.isFinite(+r.t) && +r.t>0).map(r=>({min:ctParts(+r.t).min, o:+r.o, h:+r.h, l:+r.l, c:+r.c})).filter(x=>x.c>0).sort((p,q)=>p.min-q.min); }
 function mgAt(bars, m){ let v=null; for(const x of bars){ if(x.min<=m){ if(x.min>=m-20) v=x.c; } else break; } return v; }
-// Price one closed play from real option trades. call = the board's MCP call helper.
+const MG_PV = 2;   // pricing version: 2 = buy at the ask, sell at the bid from real option quotes
+// UTC ms for a CT minute on a date (handles CDT/CST)
+function mgUtc(date, min){ const off = ctParts(Date.parse(date+'T18:00:00Z')).min - 18*60; return Date.parse(date+'T00:00:00Z') + (min-off)*60000; }
+// Real NBBO quote at the end of CT minute `min` (decision made on that bar's close). Returns {bid, ask} or null if older than 5 minutes.
+async function mgQuote(call, ticker, date, min){
+  const at = mgUtc(date, min+1);
+  const res = await call('host:massive','call_api',{path:`/v3/quotes/${ticker}`, params:{'timestamp.lte': new Date(at).toISOString(), order:'desc', sort:'timestamp', limit:1}});
+  const r = parseCSV(resultText(res))[0]; if(!r) return null;
+  const ts = Math.round(+r.sip_timestamp/1e6); if(!(ts>0) || at-ts > 5*60e3) return null;
+  const bid=+r.bid_price, ask=+r.ask_price; if(!(ask>0) || !(bid>=0) || ask<bid) return null;
+  return {bid, ask};
+}
+// Fill price: buys pay the ask, sells get the bid. Without a fresh quote, fall back to the last trade -/+ an assumed half-spread (5%, at least $0.01).
+async function mgFill(call, ticker, date, min, side, last){
+  let q=null; try{ q=await mgQuote(call, ticker, date, min); }catch(e){}
+  if(q) return {px: side==='buy'? q.ask : q.bid, q:true};
+  if(!(last>0)) return {px:null, q:false};
+  const h=Math.max(0.01, last*0.05); return {px: side==='buy'? last+h : Math.max(0, last-h), q:false};
+}
+// Price one closed play. call = the board's MCP call helper.
 async function priceManaged(call, date, sym, p){
-  const out={};
+  const out={pv:MG_PV};
   const bars = async tk => mgOptRows(await call('host:massive','call_api',{path:`/v2/aggs/ticker/${tk}/range/1/minute/${date}/${date}`, params:{adjusted:'true',sort:'asc',limit:50000}}));
   const typ = p.side>0?'call':'put';
-  // leg 1: ATM, expiry nearest 30 days, sized at 1% risk (delta ~0.5), premium capped at $2,500
+  const r2 = v => Math.round(v*100)/100;
+  // leg 1: ATM, expiry nearest 30 days, 1% risk (delta ~0.5), premium capped at $2,500, filled at bid/ask
   try{
     const res=await call('host:massive','call_api',{path:'/v3/reference/options/contracts', params:{underlying_ticker:sym, as_of:date, contract_type:typ,
       'expiration_date.gte':shiftDays(date,RULES.EXP_MIN), 'expiration_date.lte':shiftDays(date,RULES.EXP_MAX), 'strike_price.gte':Math.floor(p.entry*0.96), 'strike_price.lte':Math.ceil(p.entry*1.04), limit:250}});
@@ -1153,15 +1173,21 @@ async function priceManaged(call, date, sym, p){
     else {
       const exp=[...new Set(rows.map(r=>r.expiration_date))].sort((x,y)=>Math.abs(dteOf(date,x)-RULES.DTE)-Math.abs(dteOf(date,y)-RULES.DTE))[0];
       const c=rows.filter(r=>r.expiration_date===exp).sort((x,y)=>Math.abs(+x.strike_price-p.entry)-Math.abs(+y.strike_price-p.entry))[0];
-      const ob=await bars(c.ticker); const p0=mgAt(ob,p.entryMin), p1=mgAt(ob,p.exitMin), pT=p.t1Min!=null? mgAt(ob,p.t1Min) : null;
-      if(!(p0>0) || !(p1>0)) out.d30={ticker:c.ticker, skip:'contract did not trade at entry or exit'};
-      else { const n=Math.min(Math.max(1, Math.floor(MG.RISK/(0.5*p.R*100))), Math.floor(MG.MAXPREM/(p0*100)));
+      const q0=await mgQuote(call, c.ticker, date, p.entryMin);
+      if(!q0) out.d30={ticker:c.ticker, skip:'no quote at entry'};
+      else { const p0=q0.ask; const n=Math.min(Math.max(1, Math.floor(MG.RISK/(0.5*p.R*100))), Math.floor(MG.MAXPREM/(p0*100)));
         if(n<1) out.d30={ticker:c.ticker, p0, skip:'one contract costs more than $2,500'};
-        else { const half = (pT>0 && n>=2) ? Math.floor(n/2) : 0;
-          out.d30={ticker:c.ticker, expiry:exp, strike:+c.strike_price, n, p0, pT1: half?pT:null, half, p1, pnl:Math.round((half*(pT-p0)+(n-half)*(p1-p0))*100)}; } }
+        else {
+          const qT = p.t1Min!=null && n>=2 ? await mgQuote(call, c.ticker, date, p.t1Min) : null;
+          const half = qT ? Math.floor(n/2) : 0;
+          const q1 = await mgQuote(call, c.ticker, date, p.exitMin);
+          if(!q1) out.d30={ticker:c.ticker, p0, skip:'no quote at exit'};
+          else out.d30={ticker:c.ticker, expiry:exp, strike:+c.strike_price, n, p0, pT1: half?qT.bid:null, half, p1:q1.bid, spread0:r2(q0.ask-q0.bid),
+            pnl:Math.round((half*((half?qT.bid:0)-p0)+(n-half)*(q1.bid-p0))*100)};
+        } }
     }
   }catch(e){ out.d30={err:(e&&(e.code||e.message))||'error'}; }
-  // leg 2: nearest expiry (same day when listed), out of the money, premium closest to $0.70; -50% premium stop
+  // leg 2: nearest expiry (same day when listed), out of the money, ~$0.70; -50% premium stop; filled at bid/ask
   try{
     const res=await call('host:massive','call_api',{path:'/v3/reference/options/contracts', params:{underlying_ticker:sym, as_of:date, contract_type:typ,
       'expiration_date.gte':date, 'expiration_date.lte':shiftDays(date,7),
@@ -1173,25 +1199,35 @@ async function priceManaged(call, date, sym, p){
       const exp=rows.map(r=>r.expiration_date).sort()[0];
       const list=rows.filter(r=>r.expiration_date===exp).sort((x,y)=>Math.abs(+x.strike_price-p.entry)-Math.abs(+y.strike_price-p.entry));
       const tried={};
-      const look=async k=>{ if(tried[k]) return tried[k]; const ob=await bars(list[k].ticker); return tried[k]={k, ob, p0:mgAt(ob,p.entryMin), c:list[k]}; };
+      const look=async k=>{ if(tried[k]) return tried[k]; const ob=await bars(list[k].ticker); return tried[k]={k, ob, last:mgAt(ob,p.entryMin), c:list[k]}; };
       let k=0;
       for(let step=0; step<5 && k<list.length; step++){ const r=await look(k);
-        if(!(r.p0>0)){ k++; continue; }
-        if(r.p0>1.10){ const nk=k+Math.max(1, Math.round(Math.log(r.p0/MG.CHEAP)/Math.log(1.5))); if(nk>=list.length || tried[nk]) break; k=nk; }
-        else if(r.p0<0.40 && k>0 && !tried[k-1]) k--;
+        if(!(r.last>0)){ k++; continue; }
+        if(r.last>1.10){ const nk=k+Math.max(1, Math.round(Math.log(r.last/MG.CHEAP)/Math.log(1.5))); if(nk>=list.length || tried[nk]) break; k=nk; }
+        else if(r.last<0.40 && k>0 && !tried[k-1]) k--;
         else break; }
-      const best=Object.values(tried).filter(r=>r.p0>0).sort((x,y)=>Math.abs(x.p0-MG.CHEAP)-Math.abs(y.p0-MG.CHEAP))[0];
-      if(!best || best.p0<0.20 || best.p0>1.60) out.cheap={expiry:exp, skip: best? 'closest premium was $'+best.p0.toFixed(2) : 'contracts did not trade at entry'};
+      const best=Object.values(tried).filter(r=>r.last>0).sort((x,y)=>Math.abs(x.last-MG.CHEAP)-Math.abs(y.last-MG.CHEAP))[0];
+      if(!best || best.last<0.20 || best.last>1.60) out.cheap={expiry:exp, skip: best? 'closest premium was $'+best.last.toFixed(2) : 'contracts did not trade at entry'};
       else {
-        const p0=best.p0, n = p0<=MG.CHEAP_MAX ? MG.CHEAP_N : Math.max(1, Math.floor(MG.CHEAP_BUDGET/(p0*100)));
-        const stopPx=+(p0*(1-MG.PSTOP)).toFixed(4); let stopMin=null;
+        const tk=best.c.ticker;
+        const f0=await mgFill(call, tk, date, p.entryMin, 'buy', best.last); const p0=f0.px;
+        const n = p0<=MG.CHEAP_MAX ? MG.CHEAP_N : Math.max(1, Math.floor(MG.CHEAP_BUDGET/(p0*100)));
+        // -50% stop triggers when a trade prints at or below half the price paid; the stop sells at the bid
+        const stopPx=p0*(1-MG.PSTOP); let stopMin=null;
         for(const x of best.ob){ if(x.min>p.entryMin && x.min<=p.exitMin && x.l<=stopPx){ stopMin=x.min; break; } }
-        const pT = (p.t1Min!=null && (stopMin==null || p.t1Min<stopMin)) ? mgAt(best.ob, p.t1Min) : null;
-        const half = pT>0 ? Math.floor(n/2) : 0;
-        const p1 = stopMin!=null ? stopPx : mgAt(best.ob, p.exitMin);
-        if(!(p1>=0)) out.cheap={ticker:best.c.ticker, skip:'no trade near the exit'};
-        else out.cheap={ticker:best.c.ticker, expiry:exp, zero: exp===date, strike:+best.c.strike_price, n, p0, pT1: half?pT:null, half, p1, stopMin,
-          pnl:Math.round((half*(pT-p0)+(n-half)*(p1-p0))*100)};
+        const tMin = (p.t1Min!=null && (stopMin==null || p.t1Min<stopMin)) ? p.t1Min : null;
+        const fT = tMin!=null ? await mgFill(call, tk, date, tMin, 'sell', mgAt(best.ob,tMin)) : null;
+        const half = fT && fT.px!=null ? Math.floor(n/2) : 0;
+        const xMin = stopMin!=null ? stopMin : p.exitMin;
+        const f1 = await mgFill(call, tk, date, xMin, 'sell', stopMin!=null ? stopPx : mgAt(best.ob, p.exitMin));
+        if(f1.px==null) out.cheap={ticker:tk, skip:'no price near the exit'};
+        else {
+          const lastIn=best.last, lastOut = stopMin!=null ? stopPx : mgAt(best.ob, p.exitMin), lastT = half? mgAt(best.ob,tMin) : null;
+          out.cheap={ticker:tk, expiry:exp, zero: exp===date, strike:+best.c.strike_price, n, p0, pT1: half?fT.px:null, half, p1:f1.px, stopMin,
+            quoted: f0.q && f1.q && (!half || fT.q),
+            pnl:Math.round((half*((half?fT.px:0)-p0)+(n-half)*(f1.px-p0))*100),
+            pnlLast: (lastOut>=0) ? Math.round((half*((lastT||0)-lastIn)+(n-half)*(lastOut-lastIn))*100) : null};
+        }
       }
     }
   }catch(e){ out.cheap={err:(e&&(e.code||e.message))||'error'}; }
@@ -1204,16 +1240,17 @@ function mgDoc(date, sym, p, extra){
 
 function ManagedLog({rows, onBackfill, bfMsg, bfBusy, canRun}){
   const plays = rows.filter(r=>r.kind!=='day').sort((a,b)=> a.date===b.date ? (b.entryMin||0)-(a.entryMin||0) : (a.date<b.date?1:-1));
-  const days = rows.filter(r=>r.kind==='day').length;
-  const leg = (L)=> !L ? html`<span className="note">pricing…</span>` : L.skip||L.err ? html`<span className="note">${L.skip||('error '+L.err)}</span>`
-    : html`<span>${L.n}× ${L.strike}${L.expiry?' '+L.expiry.slice(5):''}${L.zero?' 0DTE':''} · $${f2(L.p0)} → $${f2(L.p1)}${L.half?html` <span className="note">(${L.half} at $${f2(L.pT1)})</span>`:null}${L.stopMin!=null?html` <span className="note">−50% stop ${hm(L.stopMin)}</span>`:null}</span>`;
+  const days = rows.filter(r=>r.kind==='day' && r.pv===MG_PV).length;
+  const stale = plays.filter(r=>r.status==='closed' && !(r.legs && r.legs.pv===MG_PV)).length;
+  const leg = (L, r)=> !(r.legs && r.legs.pv===MG_PV) ? html`<span className="note">old pricing · waiting for bid/ask reprice</span>` : !L ? html`<span className="note">pricing…</span>` : L.skip||L.err ? html`<span className="note">${L.skip||('error '+L.err)}</span>`
+    : html`<span>${L.n}× ${L.strike}${L.expiry?' '+L.expiry.slice(5):''}${L.zero?' 0DTE':''} · ask $${f2(L.p0)} → bid $${f2(L.p1)}${L.quoted===false?html` <span className="note">est. spread</span>`:null}${L.half?html` <span className="note">(${L.half} at $${f2(L.pT1)})</span>`:null}${L.stopMin!=null?html` <span className="note">−50% stop ${hm(L.stopMin)}</span>`:null}</span>`;
   const usd = v => Number.isFinite(v) ? html`<span className=${v>=0?'up':'dn'}>${(v>=0?'+$':'−$')+Math.abs(Math.round(v)).toLocaleString('en-US')}</span>` : '–';
   return html`<section className="panel" aria-label="Managed test account">
     <div className="row"><h2>Managed test account · new rules</h2><span className="note">${plays.length} plays logged</span></div>
-    <div className="note">Runs next to the current rules on the same 11 tickers. <b>Entries all day:</b> the opening-range break on a 5-minute close (re-arms after price closes back inside the range), plus a trend pullback to VWAP or the 20 EMA reclaimed on a 5-minute close with volume. Up to 3 plays per ticker a day, one at a time, 15-minute cooldown after an exit, no new entries after 1:30 PM CT. <b>Exits:</b> half off at 1R and stop to breakeven, the rest at 2R, on a 5-minute close back through VWAP, or flat at 2:40. Each play is priced from real option trades twice: a ~30-day ATM contract at 1% risk ($500, premium capped at $2,500), and the nearest expiry (same day when listed) out of the money near $0.70, 10 contracts (fewer above $0.75), with a −50% premium stop.</div>
+    <div className="note">Runs next to the current rules on the same 11 tickers. <b>Entries all day:</b> the opening-range break on a 5-minute close (re-arms after price closes back inside the range), plus a trend pullback to VWAP or the 20 EMA reclaimed on a 5-minute close with volume. Up to 3 plays per ticker a day, one at a time, 15-minute cooldown after an exit, no new entries after 1:30 PM CT. <b>Exits:</b> half off at 1R and stop to breakeven, the rest at 2R, on a 5-minute close back through VWAP, or flat at 2:40. Each play is priced from real option trades twice: a ~30-day ATM contract at 1% risk ($500, premium capped at $2,500), and the nearest expiry (same day when listed) out of the money near $0.70, 10 contracts (fewer above $0.75), with a −50% premium stop. <b>Fills:</b> every buy pays the real ask and every sell gets the real bid, from Massive option quotes at that minute; if no quote is found, the last trade is used with a 5% spread assumed (marked “est. spread”).</div>
     <div className="row" style=${{justifyContent:'flex-start',gap:'10px'}}>
-      <button className="primary" disabled=${bfBusy||!canRun} onClick=${onBackfill}>${bfBusy?'Rebuilding…':'Rebuild past days from Oct 23'}</button>
-      <span className="note">${bfMsg || (canRun? (days? days+' past days rebuilt. Press again to fill any new days.' : 'Replays every session since Oct 23 with real prices so the account starts with history. Takes several minutes; best after the close.') : ((window.__VIEWER || IN_CLAUDE) ? 'The cloud server rebuilds missing past days by itself after the close.' : 'Needs the board open with Massive connected.'))}</span></div>
+      <button className="primary" disabled=${bfBusy||!canRun} onClick=${onBackfill}>${bfBusy?'Rebuilding…':(stale?'Reprice and rebuild past days':'Rebuild past days from Oct 23')}</button>
+      <span className="note">${bfMsg || (stale ? stale+' plays use the old last-trade pricing and are left out of the balances until '+(canRun?'you press the button to reprice them at real bid/ask.':'the cloud server reprices them at real bid/ask.') : '') || (canRun? (days? days+' past days rebuilt. Press again to fill any new days.' : 'Replays every session since Oct 23 with real prices so the account starts with history. Takes several minutes; best after the close.') : ((window.__VIEWER || IN_CLAUDE) ? 'The cloud server records managed plays and rebuilds past days by itself after the close.' : 'Needs the board open with Massive connected.'))}</span></div>
     <div className="tbl"><table>
       <thead><tr><th style=${{textAlign:'left'}}>Date</th><th style=${{textAlign:'left'}}>Ticker</th><th style=${{textAlign:'left'}}>Setup</th><th>In → out</th><th>Half at 1R</th><th style=${{textAlign:'left'}}>Exit</th><th>R</th><th style=${{textAlign:'left'}}>30-day leg</th><th>$</th><th style=${{textAlign:'left'}}>Cheap leg</th><th>$</th></tr></thead>
       <tbody>${!plays.length ? html`<tr><td colSpan="11" style=${{textAlign:'left',color:'var(--dim)',fontFamily:'var(--f-body)'}}>No managed plays yet. They log during the session, or press Rebuild to replay past days.</td></tr>` :
@@ -1222,8 +1259,8 @@ function ManagedLog({rows, onBackfill, bfMsg, bfBusy, canRun}){
           <td style=${{textAlign:'left'}}>${r.setup} · ${r.side>0?'calls':'puts'}${r.late?html` <span className="note">late</span>`:null}</td>
           <td>${hm(r.entryMin)} → ${r.exitMin!=null?hm(r.exitMin):'open'}</td><td>${r.t1Min!=null?hm(r.t1Min):'–'}</td>
           <td style=${{textAlign:'left'}}>${r.status==='open'?'holding':r.reason}</td><td className=${(r.rMult??0)>=0?'up':'dn'}>${r.rMult!=null?r.rMult.toFixed(2):'–'}</td>
-          <td style=${{textAlign:'left'}}>${r.status==='open'?'–':leg(r.legs&&r.legs.d30)}</td><td>${usd(r.legs&&r.legs.d30&&r.legs.d30.pnl)}</td>
-          <td style=${{textAlign:'left'}}>${r.status==='open'?'–':leg(r.legs&&r.legs.cheap)}</td><td>${usd(r.legs&&r.legs.cheap&&r.legs.cheap.pnl)}</td></tr>`)}</tbody>
+          <td style=${{textAlign:'left'}}>${r.status==='open'?'–':leg(r.legs&&r.legs.d30, r)}</td><td>${usd(r.legs&&r.legs.pv===MG_PV&&r.legs.d30&&r.legs.d30.pnl)}</td>
+          <td style=${{textAlign:'left'}}>${r.status==='open'?'–':leg(r.legs&&r.legs.cheap, r)}</td><td>${usd(r.legs&&r.legs.pv===MG_PV&&r.legs.cheap&&r.legs.cheap.pnl)}</td></tr>`)}</tbody>
     </table></div>
   </section>`;
 }
@@ -1260,7 +1297,7 @@ function StrategyAccounts({rows, budget, managed=[]}){
   const d0 = new Date(today+'T12:00:00Z'); const monday = new Date(d0.getTime()-((d0.getUTCDay()+6)%7)*864e5).toISOString().slice(0,10);
   const sig = rows.filter(r=>r.source!=='manual').map(r=>paperNorm(r,budget,'hold'));
   for(const m of managed){ if(m.kind==='day') continue;
-    for(const [k,lk] of [['mg30','d30'],['mg0','cheap']]){ const L=m.legs&&m.legs[lk]; const ok=m.status==='closed' && L && Number.isFinite(L.pnl);
+    for(const [k,lk] of [['mg30','d30'],['mg0','cheap']]){ const L=m.legs&&m.legs.pv===MG_PV&&m.legs[lk]; const ok=m.status==='closed' && L && Number.isFinite(L.pnl);
       if(m.status==='open' || ok) sig.push({date:m.date, source:k, status: ok?'closed':'open', dollarPL: ok?L.pnl:null, exitMin:m.exitMin}); } }
   const A = ACCTS.map(a=>({...a, st: acctStats(sig.filter(r=>r.source===a.k), today, monday)}));
   const dates = [...new Set(sig.filter(r=>r.status==='closed').map(r=>r.date))].sort();
@@ -1803,7 +1840,7 @@ function App(){
           const pDir = t.pUp==null? null : (p.side>0? t.pUp : 1-t.pUp);
           const base = {late: ex? !!ex.late : (nowMin-p.entryMin>6), jevDir: ex? (ex.jevDir??null) : pDir};
           if(p.open){ if(!ex){ const doc=mgDoc(today,sym,p,base); mgRef.current[id]={id,...doc}; try{ await db.collection('managed').doc(id).set(doc); }catch(e){} } continue; }
-          if(ex && ex.status==='closed' && ex.exitMin===p.exitMin && ex.legs && ex.legs.d30 && ex.legs.cheap && !ex.legs.d30.err && !ex.legs.cheap.err) continue;
+          if(ex && ex.status==='closed' && ex.exitMin===p.exitMin && ex.legs && ex.legs.pv===MG_PV && ex.legs.d30 && ex.legs.cheap && !ex.legs.d30.err && !ex.legs.cheap.err) continue;
           if(nowMin < p.exitMin+2 || priced>=(nowMin<RULES.FLAT?2:4)) continue;
           priced++; let legs=null; try{ legs=await priceManaged(call, today, sym, p); }catch(e){ legs={d30:{err:'error'}, cheap:{err:'error'}}; }
           const doc=mgDoc(today,sym,p,{...base, legs}); mgRef.current[id]={id,...doc};
@@ -1813,20 +1850,20 @@ function App(){
   const backfillManaged = useCallback(async ()=>{
     if(!db || !mcp || bfBusy) return; setBfBusy(true);
     try{ const today=ctParts(Date.now()).date; const dates=[]; let d=MG.START;
-      while(d<today){ const wd=new Date(d+'T12:00:00Z').getUTCDay(); if(wd>0 && wd<6 && !mgRef.current['day-'+d]) dates.push(d); d=shiftDays(d,1); }
-      if(!dates.length){ setBfMsg('All past days since Oct 23 are already rebuilt.'); return; }
+      while(d<today){ const wd=new Date(d+'T12:00:00Z').getUTCDay(); if(wd>0 && wd<6 && !(mgRef.current['day-'+d] && mgRef.current['day-'+d].pv===MG_PV)) dates.push(d); d=shiftDays(d,1); }
+      if(!dates.length){ setBfMsg('All past days since Oct 23 are rebuilt with bid/ask pricing.'); return; }
       let total=0, di=0;
       for(const date of dates){ di++; let dayN=0, loaded=0, failed=[];
         for(const sym of ALL){ setBfMsg('Day '+di+' of '+dates.length+' · '+dateLabel(date)+' · '+sym+'…');
           try{ const dd=await loadDaily(sym,date); const bars=await loadMinutes(sym,date);
             if(!bars.some(b=>b.min>=RULES.OPEN && b.min<15*60)) continue; loaded++;
             for(const p of managedDay(bars, dd.atr)){ if(p.open) continue; const id=date+'-'+sym+'-M'+p.n; const ex=mgRef.current[id];
-              if(ex && ex.legs && ex.legs.d30 && ex.legs.cheap && !ex.legs.d30.err && !ex.legs.cheap.err) { dayN++; continue; }
+              if(ex && ex.legs && ex.legs.pv===MG_PV && ex.legs.d30 && ex.legs.cheap && !ex.legs.d30.err && !ex.legs.cheap.err) { dayN++; continue; }
               let legs=null; try{ legs=await priceManaged(call, date, sym, p); }catch(e){ legs={d30:{err:'error'}, cheap:{err:'error'}}; }
               const doc=mgDoc(date,sym,p,{late:true, rebuilt:true, jevDir:null, legs}); mgRef.current[id]={id,...doc};
               await db.collection('managed').doc(id).set(doc); dayN++; total++; }
           }catch(e){ failed.push(sym); } }
-        if(loaded && !failed.length){ const m={kind:'day', date, plays:dayN, at:new Date().toISOString()}; mgRef.current['day-'+date]={id:'day-'+date,...m}; try{ await db.collection('managed').doc('day-'+date).set(m); }catch(e){} }
+        if(loaded && !failed.length){ const m={kind:'day', date, plays:dayN, pv:MG_PV, at:new Date().toISOString()}; mgRef.current['day-'+date]={id:'day-'+date,...m}; try{ await db.collection('managed').doc('day-'+date).set(m); }catch(e){} }
         if(failed.length===ALL.length){ setBfMsg('Stopped at '+dateLabel(date)+': could not load price data. Press Rebuild to try again.'); return; } }
       setBfMsg('Rebuilt '+dates.length+' day'+(dates.length===1?'':'s')+' · '+total+' plays priced.');
     }catch(e){ setBfMsg('Rebuild stopped ('+((e&&(e.code||e.message))||'error')+'). Press Rebuild to continue where it left off.'); }
