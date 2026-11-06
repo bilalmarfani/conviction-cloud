@@ -310,6 +310,7 @@ const W = {breakout:30, flow:35, jev:25, spread:10};
 const PRIMARY = ['NVDA','TSLA'], REF = ['AAPL','SPY','QQQ','MU','PLTR','SMCI','AMD','AVGO','HOOD'], ALL = [...PRIMARY, ...REF];
 // Paper plays only on the tickers whose 12-month backtest was positive (Nov 5 2026); the other 7 stay on screen as a watchlist.
 const TRADE = new Set(['NVDA','TSLA','MU','PLTR']);
+const IN_CLAUDE = !window.__CC;   // true when this page runs as the claude.ai artifact (view-only), false on the cloud server
 // 12-month backtest of these exact rules, 8:45-9:00 window, ~30-day options: [signals per year, avg option return %]
 const BT = {NVDA:[24,1.93],TSLA:[20,4.25],AAPL:[16,-5.87],SPY:[26,-3.38],QQQ:[30,-0.42],MU:[25,3.99],PLTR:[23,6.11],SMCI:[30,-1.44],AMD:[23,-14.98],AVGO:[20,-3.89],HOOD:[25,-3.10]};
 // Backtest Oct 22 2025 - Oct 20 2026, 1-min bars: breakout + volume delta, 0.5 ATR stop, 1.5 ATR target, flat 2:40, ~30-day ATM option costs. No Jev (no history).
@@ -1051,7 +1052,7 @@ function PaperLog({db, rows: allRows, dbState, budget}){
       <thead><tr><th>Date</th><th>Ticker</th><th>Window</th><th>Side</th><th>Entry</th><th>Exit</th><th>Why</th><th>Stock</th><th>Premium</th><th>Option</th><th>Fade exit</th><th>Contracts</th><th>$ P&L</th><th>Source</th><th></th></tr></thead>
       <tbody>${rows.length===0? html`<tr><td colSpan="15" style=${{fontFamily:'var(--f-body)',color:'var(--dim)',textAlign:'left'}}>No paper trades yet. In live mode every GO IN on all 11 tickers is logged here automatically and closed at its stop, target or 2:40 CT. Add your own fills by hand below.</td></tr>` :
         rows.slice().sort((a,b)=>a.date<b.date?1:-1).map(r=>html`<tr key=${r.id}>
-          <td>${r.date}</td><td>${r.sym}${PRIMARY.includes(r.sym)?' ✓':''}</td><td>${isPrime(r)?'prime':'after 9'}${r.entryMin!=null?' · '+hm(r.entryMin):''}${(r.n||1)>1?' · play #'+r.n:''}</td><td>${r.side>0?'calls':'puts'}</td><td>${f2(r.entry)}</td><td>${r.exit!=null?f2(r.exit):'open'}</td>
+          <td>${r.date}${r.legacy?html` <span className="note" title="Recorded by the claude.ai board under the old rules (all 11 tickers, old sizing) before the server took over on Nov 5">old rules</span>`:null}</td><td>${r.sym}${PRIMARY.includes(r.sym)?' ✓':''}</td><td>${isPrime(r)?'prime':'after 9'}${r.entryMin!=null?' · '+hm(r.entryMin):''}${(r.n||1)>1?' · play #'+r.n:''}</td><td>${r.side>0?'calls':'puts'}</td><td>${f2(r.entry)}</td><td>${r.exit!=null?f2(r.exit):'open'}</td>
           <td>${r.status==='open'?'holding':(r.exitReason||'')}</td><td className=${(r.stockPct??0)>=0?'up':'dn'}>${r.stockPct!=null?pct(r.stockPct,2):'–'}</td>
           <td>${r.premEntry?('$'+f2(r.premEntry)+(r.premExit?' → $'+f2(r.premExit):'')):'–'}</td>
           <td className=${(r.optPct??0)>=0?'up':'dn'}>${r.optPct!=null?pct(r.optPct):'–'}</td>
@@ -1212,7 +1213,7 @@ function ManagedLog({rows, onBackfill, bfMsg, bfBusy, canRun}){
     <div className="note">Runs next to the current rules on the same 11 tickers. <b>Entries all day:</b> the opening-range break on a 5-minute close (re-arms after price closes back inside the range), plus a trend pullback to VWAP or the 20 EMA reclaimed on a 5-minute close with volume. Up to 3 plays per ticker a day, one at a time, 15-minute cooldown after an exit, no new entries after 1:30 PM CT. <b>Exits:</b> half off at 1R and stop to breakeven, the rest at 2R, on a 5-minute close back through VWAP, or flat at 2:40. Each play is priced from real option trades twice: a ~30-day ATM contract at 1% risk ($500, premium capped at $2,500), and the nearest expiry (same day when listed) out of the money near $0.70, 10 contracts (fewer above $0.75), with a −50% premium stop.</div>
     <div className="row" style=${{justifyContent:'flex-start',gap:'10px'}}>
       <button className="primary" disabled=${bfBusy||!canRun} onClick=${onBackfill}>${bfBusy?'Rebuilding…':'Rebuild past days from Oct 23'}</button>
-      <span className="note">${bfMsg || (canRun? (days? days+' past days rebuilt. Press again to fill any new days.' : 'Replays every session since Oct 23 with real prices so the account starts with history. Takes several minutes; best after the close.') : (window.__VIEWER ? 'The server rebuilds missing past days by itself after the close.' : 'Needs the board open with Massive connected.'))}</span></div>
+      <span className="note">${bfMsg || (canRun? (days? days+' past days rebuilt. Press again to fill any new days.' : 'Replays every session since Oct 23 with real prices so the account starts with history. Takes several minutes; best after the close.') : ((window.__VIEWER || IN_CLAUDE) ? 'The cloud server rebuilds missing past days by itself after the close.' : 'Needs the board open with Massive connected.'))}</span></div>
     <div className="tbl"><table>
       <thead><tr><th style=${{textAlign:'left'}}>Date</th><th style=${{textAlign:'left'}}>Ticker</th><th style=${{textAlign:'left'}}>Setup</th><th>In → out</th><th>Half at 1R</th><th style=${{textAlign:'left'}}>Exit</th><th>R</th><th style=${{textAlign:'left'}}>30-day leg</th><th>$</th><th style=${{textAlign:'left'}}>Cheap leg</th><th>$</th></tr></thead>
       <tbody>${!plays.length ? html`<tr><td colSpan="11" style=${{textAlign:'left',color:'var(--dim)',fontFamily:'var(--f-body)'}}>No managed plays yet. They log during the session, or press Rebuild to replay past days.</td></tr>` :
@@ -1291,6 +1292,7 @@ function StrategyAccounts({rows, budget, managed=[]}){
           ${r.cells.map((c,i)=>html`<${React.Fragment} key=${i}><td className=${c.any?(c.p>=0?'up':'dn'):''}>${c.any?acctUsd(c.p):'–'}</td><td>${acctBal(c.bal)}</td></${React.Fragment}>`)}
           <td className=${tot>=0?'up':'dn'}>${acctUsd(tot)}</td></tr>`; })}</tbody></table></div>`}
     </details>
+    ${(()=>{ const nl=rows.filter(r=>r.legacy && r.source!=='manual').length; return nl? html`<div className="note">Includes ${nl} plays marked "old rules": recorded by the claude.ai board before Nov 5 (all 11 tickers, old sizing). From Nov 5 the cloud server records plays under the current rules.</div>` : null; })()}
     <div className="note">Each strategy trades its own $50,000 paper account, so they can be compared head to head over the 6 weeks. The two MANAGED accounts use the new rules and real option trades (see the Managed test account panel). GO IN, 5-MIN and TECH GO count closed plays at the official hold exit (stop, target or 2:40), sized by Max $ per play (${'$'+(+budget).toLocaleString('en-US')}, 1–3 contracts) at the option mid, no commissions. Open plays are not counted until they close; plays from past days still marked open (never closed at 2:40) are left out and flagged. Manual fills and the Webull log are kept separate.</div>
   </section>`;
 }
@@ -1351,7 +1353,18 @@ function App(){
       c.use('mcp').then(m=>setMcp(m)).catch(()=>{});
       const d = await c.use('db').catch(()=>null);
       if(!d){ setDbState('Log unavailable in this view (sign in to claude.ai to keep paper trades)'); return; }
-      setDb(d); setDbState('Saved to this dashboard');
+      // Same file runs on the cloud server and as the claude.ai artifact. In claude.ai (no window.__CC) the server is the
+      // recorder and a sync copies its plays here, so automatic set/update on 'paper' and 'managed' do nothing.
+      // Manual entries (id ending -m...) and deletes still work.
+      if(IN_CLAUDE){
+        const bindv=(o,k)=>{ const v=o[k]; return typeof v==='function'? v.bind(o) : v; };
+        const viewOnly = new Proxy(d, { get(t,k){ if(k!=='collection') return bindv(t,k);
+          return (n,...a)=>{ const col=t.collection(n,...a); if(n!=='paper' && n!=='managed') return col;
+            return new Proxy(col, { get(c,k2){ if(k2!=='doc') return bindv(c,k2);
+              return (id,...b)=>{ const ref=c.doc(id,...b); if(/-m[0-9a-z]+$/.test(String(id))) return ref;
+                return new Proxy(ref, { get(r,k3){ return (k3==='set'||k3==='update')? (async()=>{}) : bindv(r,k3); } }); }; } }); }; } });
+        setDb(viewOnly); setDbState('Plays are recorded by the cloud server and copied here every 5 minutes during the session');
+      } else { setDb(d); setDbState('Saved to this dashboard'); }
       off = d.collection('paper').onSnapshot(snap=>{ setPaper(snap.docs.map(x=>({id:x.id,...x.data()}))); }, e=>setDbState('Log stopped updating ('+e.code+')'));
       const off2 = d.collection('real').onSnapshot(snap=>{ setReal(snap.docs.map(x=>({id:x.id,...x.data()}))); }, ()=>{});
       const off3 = d.collection('managed').onSnapshot(snap=>{ const L=snap.docs.map(x=>({id:x.id,...x.data()})); const m={}; L.forEach(x=>m[x.id]=x); mgRef.current=m; setManaged(L); }, ()=>{});
@@ -1698,7 +1711,7 @@ function App(){
   // the live board would have: stop or target if either was hit by 2:40 PM CT, else flat at the 2:40 close. The option exit is the
   // contract's own last trade at or before the exit minute (within 30 min); estimated entries are replaced by the real trade too.
   const closeStale = useCallback(async ()=>{
-    if(!db || !mcp || window.__VIEWER) return; const today=ctParts(Date.now()).date;
+    if(!db || !mcp || window.__VIEWER || IN_CLAUDE) return; const today=ctParts(Date.now()).date;
     const open = paperRef.current.filter(p=>p.status==='open' && p.date && p.date<today && p.source!=='manual' && p.entryMin!=null && p.stop!=null);
     for(const p of open){ try{
       const a = analyze(await loadMinutes(p.sym, p.date)); if(!a || a.premarket || a.lastMin<RULES.FLAT) continue;   // that day's data not complete
@@ -1781,7 +1794,7 @@ function App(){
 
   /* ---------- managed test account: compute today's plays from the 1-minute bars, price closed ones from real option trades ---------- */
   const runManaged = useCallback(async (today, nowMin)=>{
-    if(!db || !mcp || mgBusy.current || window.__VIEWER) return;   // on the server only the always-on engine copy computes and records managed plays
+    if(!db || !mcp || mgBusy.current || window.__VIEWER || IN_CLAUDE) return;   // on the server only the always-on engine copy computes and records managed plays
     if(Date.now()-(mgLast.current||0) < 30e3) return; mgLast.current=Date.now(); mgBusy.current=true;
     try{ let priced=0;
       for(const sym of ALL){ const t=S.current[sym]; if(!t || !t.bars || !t.atr || t.date!==today) continue;
@@ -2054,7 +2067,7 @@ function App(){
 
     ${mode!=='live' && sim.current && html`<${Scorecard} T=${T} budget=${budget} realOpt=${realOpt} mode=${mode} done=${dayDone}/>`}
 
-    <${ManagedLog} rows=${managed} onBackfill=${backfillManaged} bfMsg=${bfMsg} bfBusy=${bfBusy} canRun=${!!db && !!mcp && !window.__VIEWER}/>
+    <${ManagedLog} rows=${managed} onBackfill=${backfillManaged} bfMsg=${bfMsg} bfBusy=${bfBusy} canRun=${!!db && !!mcp && !window.__VIEWER && !IN_CLAUDE}/>
     <${PaperLog} db=${db} rows=${paper} dbState=${dbState} budget=${budget}/>
     <${RealLog} rows=${real} paper=${paper} onSync=${syncWebull} syncMsg=${syncMsg} canSync=${!!mcp && !!db}/>
 

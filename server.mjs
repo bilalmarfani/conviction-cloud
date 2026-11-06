@@ -397,6 +397,23 @@ const server = http.createServer(async (req, res) => {
       for (const [coll, docs] of Object.entries(d)) { out[coll] = {}; for (const [id, doc] of Object.entries(docs)) { if (!since || !/^\d{4}-\d\d-\d\d/.test(id) || id.slice(0, 10) >= since) out[coll][id] = doc; } }
       return send(res, 200, { board: xm[1], at: new Date().toISOString(), collections: out });
     }
+    // One-time import of the claude.ai board's older v2 paper history (recorded there before this server took over on Nov 5).
+    // Needs EXPORT_KEY. Insert-only: never overwrites or deletes a play, and only accepts plays dated on or before LEGACY_CUTOFF.
+    if (u.pathname === '/import/v2/paper' && req.method === 'POST') {
+      const k = String(req.headers['x-export-key'] || '');
+      const ok = CFG.exportKey.length >= 20 && k.length === CFG.exportKey.length && crypto.timingSafeEqual(Buffer.from(k), Buffer.from(CFG.exportKey));
+      if (!ok) return send(res, 403, { error: 'export key required' });
+      const LEGACY_CUTOFF = '2026-11-05';
+      const b = await readBody(req); const docs = (b && b.docs) || {};
+      const d = dbOf('v2'); const c = (d.paper = d.paper || {}); const added = [], skipped = [];
+      for (const [id, doc] of Object.entries(docs)) {
+        const date = doc && typeof doc === 'object' ? String(doc.date || '') : '';
+        if (!/^\d{4}-\d\d-\d\d-[A-Z]{1,6}(-[a-z0-9]+)?$/.test(id) || id.slice(0, 10) !== date || date > LEGACY_CUTOFF || c[id]) { skipped.push(id); continue; }
+        c[id] = { ...doc, legacy: true, recordedBy: 'claude.ai board (old rules)' }; added.push(id);
+      }
+      if (added.length) { dbSave('v2'); pushColl('v2', 'paper'); log(`import: ${added.length} older paper plays from the claude.ai board`); }
+      return send(res, 200, { added, skipped });
+    }
     if (!authed(req)) { res.writeHead(401, { 'www-authenticate': 'Basic realm="Conviction boards"', 'content-type': 'text/plain' }); return res.end('Sign in with your board user name and password.'); }
     const p = u.pathname;
     if (p === '/' ) return send(res, 200, indexPage(), 'text/html; charset=utf-8');
