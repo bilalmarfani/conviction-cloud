@@ -369,13 +369,25 @@ function boardHtml(board, engine) {
 // Behind the HTTPS proxy (tools/https.sh) every request arrives from 127.0.0.1, so a forwarded request is never local:
 // it must sign in like any other visitor. Only the engine and on-machine tools connect directly.
 function isLocal(req) { if (req.headers['x-forwarded-for'] || req.headers['forwarded']) return false; const a = req.socket.remoteAddress || ''; return a === '127.0.0.1' || a === '::1' || a === '::ffff:127.0.0.1'; }
-function authed(req) {
-  if (isLocal(req)) return true;
-  if (!CFG.pass) return false;
-  const h = req.headers.authorization || ''; if (!h.startsWith('Basic ')) return false;
+// Basic auth for every page, data call and live-update stream (one sign-in covers /v2, /v3 and /api/*: same host, same realm).
+// The user name ignores case and surrounding spaces; the password ignores surrounding spaces (copy-paste from a web console).
+function authCheck(req) {
+  if (isLocal(req)) return { ok: true };
+  if (!CFG.pass) return { ok: false, why: 'no BOARD_PASSWORD set on the server' };
+  const h = req.headers.authorization || ''; if (!h.startsWith('Basic ')) return { ok: false, why: 'no credentials sent' };
   const [u, ...rest] = Buffer.from(h.slice(6), 'base64').toString().split(':'); const p = rest.join(':');
   const eq = (x, y) => { const a = Buffer.from(String(x)), b = Buffer.from(String(y)); return a.length === b.length && crypto.timingSafeEqual(a, b); };
-  const a = eq(u, CFG.user), b = eq(p, CFG.pass); return a && b;
+  const a = eq(String(u).trim().toLowerCase(), String(CFG.user).trim().toLowerCase()), b = eq(p.trim(), String(CFG.pass).trim());
+  return a && b ? { ok: true } : { ok: false, why: !a ? 'wrong user name' : 'wrong password' };
+}
+function authed(req) { return authCheck(req).ok; }
+// One log line per visitor, URL and reason every 60 s: shows why a browser keeps asking. Never logs what was typed.
+const AUTHLOG = new Map();
+function logDenied(req, why) {
+  const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
+  const path = String(req.url || '').split('?')[0]; const k = ip + ' ' + path + ' ' + why; const now = Date.now();
+  if (now - (AUTHLOG.get(k) || 0) < 60000) return; AUTHLOG.set(k, now); if (AUTHLOG.size > 2000) AUTHLOG.clear();
+  log(`auth: 401 ${req.method} ${path} from ${ip}: ${why}`);
 }
 function isEngine(req) { return isLocal(req) && req.headers['x-engine'] === CFG.engineToken; }
 function send(res, code, body, type = 'application/json') { res.writeHead(code, { 'content-type': type, 'cache-control': 'no-store' }); res.end(typeof body === 'string' ? body : JSON.stringify(body)); }
@@ -414,7 +426,8 @@ const server = http.createServer(async (req, res) => {
       if (added.length) { dbSave('v2'); pushColl('v2', 'paper'); log(`import: ${added.length} older paper plays from the claude.ai board`); }
       return send(res, 200, { added, skipped });
     }
-    if (!authed(req)) { res.writeHead(401, { 'www-authenticate': 'Basic realm="Conviction boards"', 'content-type': 'text/plain' }); return res.end('Sign in with your board user name and password.'); }
+    const au = authCheck(req);
+    if (!au.ok) { logDenied(req, au.why); res.writeHead(401, { 'www-authenticate': 'Basic realm="Conviction boards", charset="UTF-8"', 'content-type': 'text/plain', 'cache-control': 'no-store' }); return res.end('Sign in with your board user name and password.'); }
     const p = u.pathname;
     if (p === '/' ) return send(res, 200, indexPage(), 'text/html; charset=utf-8');
     const bm = /^\/(v2|v3)\/?$/.exec(p);

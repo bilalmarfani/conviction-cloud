@@ -58,6 +58,14 @@ cat > /etc/caddy/Caddyfile.new <<CADDY
 $NAME {
 	encode gzip
 	reverse_proxy 127.0.0.1:8080
+	# request log (passwords are never written: Caddy hides the Authorization header). See tools/reset_login.sh
+	log {
+		output file /var/log/caddy/access.log {
+			roll_size 10MiB
+			roll_keep 5
+		}
+		format json
+	}
 }
 
 # Plain http to the droplet's IP address, or any other name: send it to the real address with the same path and query.
