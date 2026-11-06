@@ -573,6 +573,21 @@ function sizeBudget(c, budget, play){
   return {n, per, cost:n*per, risk: riskPer!=null ? n*riskPer : null, over: n<1, why};
 }
 const usdPL = (n, p0, p1) => n===0 ? 0 : (n && p0>0 && p1>0 ? Math.round((p1-p0)*100*n) : null);
+// Bid/ask pricing for GO IN, 5-MIN and TECH GO: a play pays the ask to enter and gets the bid to exit, from the real
+// option quotes at its entry and exit minutes (the engine fills these in). Until they are known, the mid is used.
+const pxIn = r => (r && r.premEntryAsk > 0 ? r.premEntryAsk : r && r.premEntry);
+const pxOut = r => (r && r.premExitBid > 0 ? r.premExitBid : r && r.premExit);
+// carry the quote fields from the stored doc (or the in-memory play) into a freshly built doc, and price it at bid/ask
+function withBidAsk(doc, x, prev){
+  const sameEntry = prev && prev.entryMin===doc.entryMin, sameExit = prev && prev.exitMin===doc.exitMin;
+  doc.premEntryAsk = x && x.premAsk > 0 ? x.premAsk : (sameEntry && prev.premEntryAsk > 0 ? prev.premEntryAsk : null);
+  doc.premExitBid = doc.status!=='closed' ? null : (x && x.premBid > 0 ? x.premBid : (sameExit && prev.premExitBid > 0 ? prev.premExitBid : null));
+  if(sameEntry && prev.spreadIn!=null) doc.spreadIn = prev.spreadIn;
+  if(sameExit && prev.spreadOut!=null && doc.premExitBid) doc.spreadOut = prev.spreadOut;
+  if(sameExit && prev.bidAsk){ doc.bidAsk = prev.bidAsk; doc.bidAskExitMin = prev.bidAskExitMin; doc.bidAskTries = prev.bidAskTries; }
+  doc.dollarPL = usdPL(doc.contracts, pxIn(doc), pxOut(doc));
+  return doc;
+}
 const expTxt = e => { if(!e) return '–'; const d=new Date(e+'T12:00:00Z'); return d.toLocaleDateString('en-US',{month:'short',day:'numeric',timeZone:'UTC'}); };
 
 function ContractBox({t, budget, mode}){
@@ -959,11 +974,11 @@ function Curve({rows}){
 /* Dollar P&L for any paper row: uses stored contracts, else sizes the play with the budget the same way GO IN is sized */
 function paperNorm(r, budget, exitRule){
   const fadeOn = exitRule==='fade' && r.fadeDone && r.fade && Number.isFinite(r.fade.optPct);
-  const p0 = r.premEntry, p1 = fadeOn ? r.fade.prem : r.premExit;
+  const p0 = r.source==='manual' ? r.premEntry : pxIn(r), p1 = fadeOn ? r.fade.prem : (r.source==='manual' ? r.premExit : pxOut(r));
   const n = r.contracts ?? (p0>0 ? sizeBudget({...(r.contract||{}), mid:p0}, r.budget||budget, r).n : null);
-  const pctv = fadeOn ? r.fade.optPct : r.optPct;
+  const pctv = fadeOn ? r.fade.optPct : (r.source!=='manual' && p0>0 && p1>0 ? (p1/p0-1)*100 : r.optPct);
   const usd = r.source==='manual' ? (Number.isFinite(r.dollarPL) ? r.dollarPL : usdPL(n,p0,p1)) : usdPL(n,p0,p1);
-  return {...r, contracts:n, optPct:pctv, dollarPL:usd, premExit: fadeOn ? r.fade.prem : r.premExit};
+  return {...r, contracts:n, optPct:pctv, dollarPL:usd, premEntry: p0 ?? r.premEntry, premExit: p1 ?? null};
 }
 const usdTxt = v => (v>=0?'+$':'−$')+Math.abs(v).toLocaleString('en-US');
 
@@ -1054,7 +1069,7 @@ function PaperLog({db, rows: allRows, dbState, budget}){
         rows.slice().sort((a,b)=>a.date<b.date?1:-1).map(r=>html`<tr key=${r.id}>
           <td>${r.date}${r.legacy?html` <span className="note" title="Recorded by the claude.ai board under the old rules (all 11 tickers, old sizing) before the server took over on Nov 5">old rules</span>`:null}</td><td>${r.sym}${PRIMARY.includes(r.sym)?' ✓':''}</td><td>${isPrime(r)?'prime':'after 9'}${r.entryMin!=null?' · '+hm(r.entryMin):''}${(r.n||1)>1?' · play #'+r.n:''}</td><td>${r.side>0?'calls':'puts'}</td><td>${f2(r.entry)}</td><td>${r.exit!=null?f2(r.exit):'open'}</td>
           <td>${r.status==='open'?'holding':(r.exitReason||'')}</td><td className=${(r.stockPct??0)>=0?'up':'dn'}>${r.stockPct!=null?pct(r.stockPct,2):'–'}</td>
-          <td>${r.premEntry?('$'+f2(r.premEntry)+(r.premExit?' → $'+f2(r.premExit):'')):'–'}</td>
+          <td>${r.premEntry?('$'+f2(r.premEntry)+(r.premExit?' → $'+f2(r.premExit):'')):'–'}${r.premEntryAsk>0?html` <span className="note" title="Paid the ask at entry${r.premExitBid>0?' and got the bid at exit':''}, from the real option quotes at those minutes">${r.premExitBid>0||r.status!=='closed'?'ask→bid':'ask'}</span>`:null}</td>
           <td className=${(r.optPct??0)>=0?'up':'dn'}>${r.optPct!=null?pct(r.optPct):'–'}</td>
           <td className=${r.fade&&r.fade.optPct!=null?(r.fade.optPct>=0?'up':'dn'):''}>${r.fade ? (r.fade.optPct!=null?pct(r.fade.optPct):'') +' · '+hm(r.fade.min) : (r.fadeDone?'no fade':'–')}</td><td>${r.contracts??'–'}</td>
           <td className=${(r.dollarPL??0)>=0?'up':'dn'}>${r.dollarPL!=null?((r.dollarPL>=0?'+$':'−$')+Math.abs(r.dollarPL).toLocaleString('en-US')):'–'}</td><td className=${r.source==='five'?'five':(r.source==='shadow'?'amb':'')}>${({live:'GO IN',shadow:'TECH GO',five:'5-MIN',manual:'manual'})[r.source]||r.source||''}</td>
@@ -1330,7 +1345,7 @@ function StrategyAccounts({rows, budget, managed=[]}){
           <td className=${tot>=0?'up':'dn'}>${acctUsd(tot)}</td></tr>`; })}</tbody></table></div>`}
     </details>
     ${(()=>{ const nl=rows.filter(r=>r.legacy && r.source!=='manual').length; return nl? html`<div className="note">Includes ${nl} plays marked "old rules": recorded by the claude.ai board before Nov 5 (all 11 tickers, old sizing). From Nov 5 the cloud server records plays under the current rules.</div>` : null; })()}
-    <div className="note">Each strategy trades its own $50,000 paper account, so they can be compared head to head over the 6 weeks. The two MANAGED accounts use the new rules and real option trades (see the Managed test account panel). GO IN, 5-MIN and TECH GO count closed plays at the official hold exit (stop, target or 2:40), sized by Max $ per play (${'$'+(+budget).toLocaleString('en-US')}, 1–3 contracts) at the option mid, no commissions. Open plays are not counted until they close; plays from past days still marked open (never closed at 2:40) are left out and flagged. Manual fills and the Webull log are kept separate.</div>
+    <div className="note">Each strategy trades its own $50,000 paper account, so they can be compared head to head over the 6 weeks. The two MANAGED accounts use the new rules and real option trades (see the Managed test account panel). GO IN, 5-MIN and TECH GO count closed plays at the official hold exit (stop, target or 2:40), sized by Max $ per play (${'$'+(+budget).toLocaleString('en-US')}) and valued at the real ask at entry and bid at exit (the mid only until those quotes are in), no commissions. Open plays are not counted until they close; plays from past days still marked open (never closed at 2:40) are left out and flagged. Manual fills and the Webull log are kept separate.</div>
   </section>`;
 }
 
@@ -1635,7 +1650,8 @@ function App(){
       premEntry: tr.premEntry??null, premExit: tr.premExit??null, optPct: tr.optPct??null, stockPct: tr.exit!=null? tr.side*(tr.exit/tr.entry-1)*100 : null,
       fadeDone: tr.fade!==undefined, fade: tr.fade??null, updatedAt:new Date().toISOString()};
     const pn=tr.n||1; doc.n=pn; doc.alerts=(tr.ev||[]).slice(-20); doc.maxR=tr.maxR??null;
-    try{ await db.collection('paper').doc(today+'-'+t.sym+(pn>1?'-p'+pn:'')).set(doc); }catch(e){ setLiveMsg('Could not write the paper log ('+(e.code||'error')+').'); }
+    const lid=today+'-'+t.sym+(pn>1?'-p'+pn:''); withBidAsk(doc, tr, paperRef.current.find(p=>p.id===lid));
+    try{ await db.collection('paper').doc(lid).set(doc); }catch(e){ setLiveMsg('Could not write the paper log ('+(e.code||'error')+').'); }
   },[db]);
 
   const persistShadow = useCallback(async (t)=>{
@@ -1647,7 +1663,8 @@ function App(){
       fadeDone: sh.fade!==undefined, fade: sh.fade??null, updatedAt:new Date().toISOString()};
     if(sh.premEntry>0){ const z=sizeBudget({...(sh.contract||{}), mid:sh.premEntry}, budgetRef.current, sh); doc.contracts=z.n; doc.budget=budgetRef.current; doc.sizeNote=z.why||null; doc.dollarPL=usdPL(z.n, sh.premEntry, sh.premExit); }
     const pn=sh.n||1; doc.n=pn; doc.alerts=(sh.ev||[]).slice(-20); doc.maxR=sh.maxR??null;
-    try{ await db.collection('paper').doc(today+'-'+t.sym+'-shadow'+(pn>1?'-p'+pn:'')).set(doc); }catch(e){}
+    const sid=today+'-'+t.sym+'-shadow'+(pn>1?'-p'+pn:''); withBidAsk(doc, sh, paperRef.current.find(p=>p.id===sid));
+    try{ await db.collection('paper').doc(sid).set(doc); }catch(e){}
   },[db]);
 
   const paperRef=useRef([]); paperRef.current=paper;
@@ -1666,6 +1683,7 @@ function App(){
       contracts: x.contracts??null, budget: x.budget??null, sizeNote: x.sizeNote||null,
       dollarPL: usdPL(x.contracts, x.premEntry, x.premExit),
       fadeDone: x.fade!==undefined, fade: x.fade??null, alerts:(x.ev||[]).slice(-20), maxR:x.maxR??null, updatedAt:new Date().toISOString()};
+    withBidAsk(doc, x, prev);
     try{ await db.collection('paper').doc(id).set(doc); }catch(e){}
   },[db]);
 
@@ -1677,7 +1695,7 @@ function App(){
   const restoreToday = (t, sym, today)=>{
     const docs = paper.filter(p=>p.date===today && p.sym===sym);
     const mk = (d, kind)=>({side:d.side, entry:d.entry, entryMin:d.entryMin, stop:d.stop, tp:d.tp??(d.entry+d.side*RULES.TP_ATR*t.atr), exit:d.exit, exitMin:d.exitMin, reason:d.exitReason,
-      premEntry:d.premEntry, premExit:d.premExit, optPct:d.optPct, routed:true, contracts:d.contracts??null, budget:d.budget??null, prime: d.prime ?? (d.entryMin<=RULES.WIN_END),
+      premEntry:d.premEntry, premExit:d.premExit, premAsk:d.premEntryAsk??null, premBid:d.premExitBid??null, optPct:d.optPct, routed:true, contracts:d.contracts??null, budget:d.budget??null, prime: d.prime ?? (d.entryMin<=RULES.WIN_END),
       goAt:d.goAt??null, techAt:d.techAt??null, pDir:d.jevDir, fade: d.fadeDone ? d.fade : undefined, n:d.n||1, ev:d.alerts||[], maxR:d.maxR||0, kind,
       contract: d.contract? {...d.contract, mid:d.premEntry, delta: d.contract.delta??0.5, gamma:0, theta:0}:null});
     // 5-MIN plays have their own play counter
@@ -1828,6 +1846,34 @@ function App(){
         if(optPending.current[k]) continue; optPending.current[k]=true;
         priceReal(date, sym, x.side, x.entryMin, x.exitMin, x.entry).then(r=>setRealOpt(o=>({...o,[k]:r}))).catch(()=>setRealOpt(o=>({...o,[k]:{ticker:null}}))); } }
   });
+
+  /* ---------- bid/ask for GO IN, 5-MIN and TECH GO: the real ask at the entry minute and bid at the exit minute ---------- */
+  const baBusy=useRef(false);
+  const priceBidAsk = useCallback(async ()=>{
+    if(!db || !mcp || baBusy.current || window.__VIEWER || IN_CLAUDE) return; baBusy.current=true;
+    try{ const nowP=ctParts(Date.now()); let n=0;
+      const rows=paperRef.current.filter(r=>['live','five','shadow'].includes(r.source) && r.contract && r.contract.ticker && r.entryMin!=null && r.bidAsk!=='done' && !(r.bidAsk==='none' && r.exitMin===r.bidAskExitMin))
+        .sort((a,b)=>a.date===b.date ? 0 : (a.date<b.date?1:-1));
+      for(const r of rows){ if(n>=8) break;
+        const minuteDone = m => r.date<nowP.date || nowP.min>m+1;
+        const patch={};
+        if(!(r.premEntryAsk>0) && minuteDone(r.entryMin)){ n++; let q=null; try{ q=await mgQuote(call, r.contract.ticker, r.date, r.entryMin); }catch(e){}
+          if(q) { patch.premEntryAsk=q.ask; patch.spreadIn=+(q.ask-q.bid).toFixed(4); } }
+        if(r.status==='closed' && r.exitMin!=null && !(r.premExitBid>0) && minuteDone(r.exitMin)){ n++; let q=null; try{ q=await mgQuote(call, r.contract.ticker, r.date, r.exitMin); }catch(e){}
+          if(q) { patch.premExitBid=q.bid; patch.spreadOut=+(q.ask-q.bid).toFixed(4); } }
+        const inOk = (patch.premEntryAsk ?? r.premEntryAsk) > 0, outOk = (patch.premExitBid ?? r.premExitBid) > 0;
+        // finished once both quotes are in; after 3 tries without them the play keeps the mid (contract never quoted)
+        if(r.status==='closed' && minuteDone(r.exitMin ?? 0)){ const tries=(r.bidAskTries||0)+1;
+          if(inOk && outOk){ patch.bidAsk='done'; patch.bidAskExitMin=r.exitMin; } else { patch.bidAskTries=tries; if(tries>=3){ patch.bidAsk='none'; patch.bidAskExitMin=r.exitMin; } } }
+        if(!Object.keys(patch).length) continue;
+        const merged={...r, ...patch}; patch.dollarPL = usdPL(merged.contracts, pxIn(merged), pxOut(merged));
+        try{ await db.collection('paper').doc(r.id).update(patch); Object.assign(r, patch); }catch(e){}
+        // keep the in-memory play in step so the next save carries the quotes
+        const t=S.current[r.sym]; if(t && r.date===nowP.date){ for(const x of [t.trade, t.shadow, t.five]){ if(x && x.entryMin===r.entryMin){ if(patch.premEntryAsk) x.premAsk=patch.premEntryAsk; if(patch.premExitBid) x.premBid=patch.premExitBid; } } }
+      }
+    } finally { baBusy.current=false; }
+  },[db, mcp, call]);
+  useEffect(()=>{ if(IN_CLAUDE || window.__VIEWER) return; const iv=setInterval(()=>priceBidAsk(), 20e3); const t0=setTimeout(()=>priceBidAsk(), 15e3); return ()=>{ clearInterval(iv); clearTimeout(t0); }; },[priceBidAsk]);
 
   /* ---------- managed test account: compute today's plays from the 1-minute bars, price closed ones from real option trades ---------- */
   const runManaged = useCallback(async (today, nowMin)=>{
