@@ -18,6 +18,7 @@ import datetime as dt
 import hashlib
 import json
 import os
+import ssl
 import sys
 import urllib.error
 import urllib.request
@@ -54,6 +55,14 @@ def load_state():
         return {}
 
 
+def tls():
+    # python.org Python on macOS ships without trusted certificates until "Install Certificates" is run; fall back to macOS's list
+    ctx = ssl.create_default_context()
+    if not ctx.cert_store_stats().get("x509_ca") and os.path.exists("/etc/ssl/cert.pem"):
+        ctx.load_verify_locations("/etc/ssl/cert.pem")
+    return ctx
+
+
 def fetch(today):
     server, key = read("server").rstrip("/"), read("export_key")
     if not server or not key:
@@ -61,7 +70,7 @@ def fetch(today):
     since = (dt.date.fromisoformat(today) - dt.timedelta(days=DAYS)).isoformat()
     req = urllib.request.Request(f"{server}/export/v2?since={since}", headers={"x-export-key": key})
     try:
-        with urllib.request.urlopen(req, timeout=20) as r:
+        with urllib.request.urlopen(req, timeout=20, context=tls()) as r:
             body = json.load(r)
     except urllib.error.HTTPError as e:
         out({"ok": False, "error": f"server answered HTTP {e.code}" + (" (export key not accepted)" if e.code == 403 else "")})
