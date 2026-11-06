@@ -79,10 +79,18 @@ if ! caddy validate --config /etc/caddy/Caddyfile.new --adapter caddyfile >/tmp/
   echo "The new Caddy settings did not validate; the old ones are still in use."; exit 1
 fi
 mv /etc/caddy/Caddyfile.new /etc/caddy/Caddyfile
+# validating as root creates the request log as root; Caddy runs as its own user and must own its log folder or it will not start
+mkdir -p /var/log/caddy && chown -R caddy:caddy /var/log/caddy
 caddy fmt --overwrite /etc/caddy/Caddyfile >/dev/null 2>&1 || true
 if ufw status | grep -q "Status: active"; then ufw allow 80/tcp >/dev/null; ufw allow 443/tcp >/dev/null; fi
 systemctl enable caddy >/dev/null 2>&1
 systemctl reload caddy 2>/dev/null || systemctl restart caddy
+sleep 2
+if ! systemctl is-active --quiet caddy; then
+  echo "Caddy did not start with the new settings:"; journalctl -u caddy -n 15 --no-pager | cut -c1-240
+  if [ -f /etc/caddy/Caddyfile.bak ]; then echo "Restoring the previous settings."; cp /etc/caddy/Caddyfile.bak /etc/caddy/Caddyfile; systemctl restart caddy; fi
+  exit 1
+fi
 
 say "5/5 Checking"
 ok=""
