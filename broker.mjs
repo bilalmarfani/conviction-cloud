@@ -56,7 +56,7 @@ export function createBroker({ env = process.env, quote, store, log = console.lo
     maxSpreadPct: num(env.BROKER_MAX_SPREAD_PCT, 10),  // skip entries when (ask - bid) / mid is wider than this (%)...
     maxSpreadAbs: num(env.BROKER_MAX_SPREAD_ABS, 0.05), // ...unless the spread is this many dollars or less
     maxChasePct: num(env.BROKER_MAX_CHASE_PCT, 8),     // skip if the ask is this % above the board's entry premium
-    quoteMaxAgeMs: num(env.BROKER_QUOTE_MAX_AGE_S, 15) * 1000,
+    quoteMaxAgeMs: num(env.BROKER_QUOTE_MAX_AGE_S, 60) * 1000,   // quieter contracts can keep the same valid bid/ask this long; spread and chase checks still apply
     maxContracts: num(env.BROKER_MAX_CONTRACTS, 10),
     maxOpen: num(env.BROKER_MAX_OPEN, 4),
     dailyLoss: num(env.BROKER_DAILY_LOSS, 1500),       // no new entries once an account is down this much today
