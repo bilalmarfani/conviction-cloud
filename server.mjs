@@ -26,6 +26,8 @@ const CFG = {
   massiveCmd: process.env.MASSIVE_CMD || 'mcp_massive',
   massiveArgs: process.env.MASSIVE_ARGS ? JSON.parse(process.env.MASSIVE_ARGS) : [],
   anthropicKey: process.env.ANTHROPIC_API_KEY || '',
+  typesafeKey: process.env.TYPESAFE_API_KEY || '',      // real Jev (TypeSafe), the same model the claude.ai boards use
+  evaluateCmd: process.env.EVALUATE_CMD || 'evaluate',
   jevModel: process.env.JEV_MODEL || 'claude-haiku-5-5',
   dataDir: process.env.DATA_DIR || path.join(ROOT, 'data'),
   engine: process.env.ENGINE !== 'off',
@@ -88,8 +90,36 @@ async function callMassive(input) {
   return { payload: { result: text } };
 }
 
-/* ------------------------------------------------------------------ Jev (optional: news read by Claude through the API) */
-const JEV = { calls: 0, lastErr: null };
+/* ------------------------------------------------------------------ Jev (news score) */
+// Preferred: the real Jev from TypeSafe, through its own MCP program ("evaluate"), exactly as the claude.ai boards reach it.
+// Fallback only when no TypeSafe key is set: a stand-in that asks Claude (Haiku) through the Anthropic API.
+const JEV = { calls: 0, lastErr: null, via: null, client: null, connecting: null, startFailAt: 0 };
+async function evaluateClient() {
+  if (JEV.client) return JEV.client;
+  if (JEV.connecting) return JEV.connecting;
+  if (JEV.startFailAt && Date.now() - JEV.startFailAt < 20000) throw new Error(JEV.lastStartErr || 'Jev program failed to start');
+  JEV.connecting = (async () => {
+    const env = { ...process.env, TYPESAFE_API_KEY: CFG.typesafeKey, HOME: process.env.HOME || '/root' };
+    const transport = new StdioClientTransport({ command: CFG.evaluateCmd, args: ['mcp'], env, stderr: 'pipe' });
+    const c = new Client({ name: 'conviction-cloud', version: '1.0.0' });
+    transport.onclose = () => { if (JEV.client === c) { JEV.client = null; log('jev: connection closed, will reconnect on next call'); } };
+    const err = []; try { transport.stderr && transport.stderr.on('data', d => { for (const ln of String(d).split('\n')) { const t = ln.trim(); if (t) { err.push(t); if (err.length > 20) err.shift(); } } }); } catch (e) { }
+    try { await c.connect(transport); }
+    catch (e) { await new Promise(r => setTimeout(r, 300)); throw new Error(e.message + (err.length ? ' — ' + err.slice(-3).join(' | ') : '')); }
+    JEV.client = c; log('jev: connected to TypeSafe Jev');
+    return c;
+  })();
+  try { const c = await JEV.connecting; JEV.startFailAt = 0; return c; } catch (e) { JEV.startFailAt = Date.now(); JEV.lastStartErr = e.message; throw e; } finally { JEV.connecting = null; }
+}
+async function callTypesafe(input) {
+  const c = await evaluateClient();
+  let r; try { r = await c.callTool({ name: 'evaluate', arguments: input }, undefined, { timeout: 60000 }); }
+  catch (e) { if (/closed|not connected/i.test(e.message)) JEV.client = null; throw { code: 'server_unavailable', message: 'Jev: ' + e.message }; }
+  const text = (r.content || []).filter(x => x.type === 'text').map(x => x.text).join('\n');
+  let j = null; try { j = JSON.parse(text); } catch (e) { }
+  if (r.isError || !j) throw { code: /rate|429/i.test(text) ? 'rate_limited' : 'server_unavailable', message: 'Jev: ' + text.slice(0, 300), retryAfterMs: /rate|429/i.test(text) ? 15000 : undefined };
+  return { payload: j };   // {answers:{...}} or, for items, {results:{...}, errors, meta}: the same shape the boards read in claude.ai
+}
 async function jevOne(instructions, ticker, headlines) {
   const prompt = `${instructions}\n\nTicker: ${ticker || 'unknown'}\nHeadlines:\n${(headlines || []).map((h, i) => `${i + 1}. ${h}`).join('\n')}\n\n` +
     `Answer with only a JSON object {"p": <probability from 0 to 1 that the answer is yes>}. Use 0.5 when the headlines say nothing either way.`;
@@ -106,8 +136,12 @@ async function jevOne(instructions, ticker, headlines) {
   return p;
 }
 async function callJev(input) {
-  if (!CFG.anthropicKey) throw { code: 'server_not_connected', message: 'Jev news score is off on the server (no Anthropic API key set).' };
-  JEV.calls++;
+  if (CFG.typesafeKey) {
+    JEV.calls++; JEV.via = 'typesafe';
+    try { return await callTypesafe(input); } catch (e) { JEV.lastErr = e.message || String(e); throw e; }
+  }
+  if (!CFG.anthropicKey) throw { code: 'server_not_connected', message: 'Jev news score is off on the server (no TypeSafe API key set).' };
+  JEV.calls++; JEV.via = 'anthropic';
   const qs = input.questions || {}; const key = Object.keys(qs)[0] || 'up'; const ins = (qs[key] && qs[key].instructions) || '';
   try {
     if (input.items) {
@@ -504,7 +538,7 @@ function health() {
   return {
     now: new Date().toISOString(), uptimeMin: Math.round(process.uptime() / 60),
     massive: { connected: !!M.client, lastOkAgoSec: M.okAt ? Math.round((Date.now() - M.okAt) / 1000) : null, calls: M.calls, fails: M.fails, lastErr: M.lastErr, keySet: !!CFG.massiveKey },
-    jev: { on: !!CFG.anthropicKey, calls: JEV.calls, lastErr: JEV.lastErr },
+    jev: { on: !!(CFG.typesafeKey || CFG.anthropicKey), via: CFG.typesafeKey ? 'TypeSafe Jev' : CFG.anthropicKey ? 'Anthropic stand-in' : null, connected: !!JEV.client, calls: JEV.calls, lastErr: JEV.lastErr },
     stream: { state: ST.state, live: ST.authed, tickers: ST.sent.size, filled: Object.keys(ST.seeded).length, lastDataAgoSec: ST.lastDataAt ? Math.round((Date.now() - ST.lastDataAt) / 1000) : null,
       events: ST.events, answeredFromStream: ST.served, sentToMassive: ST.passed, lastErr: ST.lastErr },
     engine: ENG.status(),
@@ -531,7 +565,7 @@ a.b b{font-size:18px}.ok{color:var(--go)}.bad{color:var(--warn)}ul{padding-left:
     : `<span class="bad">${escapeHtml(h.stream.state)}</span> · boards use regular Massive requests`}${h.stream.lastErr ? ' · ' + escapeHtml(String(h.stream.lastErr).slice(0, 180)) : ''}</li>
 <li>Alpaca paper trading: ${!h.broker ? 'not started' : !h.broker.on ? 'off' : (h.broker.halted ? '<b>halted</b> (no new entries) · ' : '') + Object.values(h.broker.accounts).map(a => `<br>&nbsp;&nbsp;<b>${a.name}</b>: ${a.connected ? `<span class="ok">connected</span>${a.info && a.info.number ? ' (…' + a.info.number + ')' : ''} · today ${a.today.plays} plays, ${a.today.fills} fills, ${a.today.skipped} skipped · realized ${a.today.realized >= 0 ? '+' : '−'}$${Math.abs(a.today.realized)} · slippage vs live mid $${a.today.slipVsMidUsd}` : String(a.why || 'not connected').replace(/[<>&]/g, '')}`).join('')}</li>
 ${pg || '<li>Engine not started</li>'}
-<li>Jev news score: ${h.jev.on ? 'on' : 'off (no Anthropic API key)'}</li>
+<li>Jev news score: ${h.jev.on ? 'on · ' + h.jev.via + (h.jev.lastErr ? ' · last error: ' + String(h.jev.lastErr).replace(/[<>&]/g, '').slice(0, 120) : '') : 'off (no TypeSafe API key)'}</li>
 <li>v3 paper trades: ${h.data.v3Trades} (${h.data.v3Open} open) · v2 log entries: ${h.data.v2Paper}</li>
 <li>Earnings dates as of ${h.data.earningsAsOf || '–'} · crowd lean as of ${h.data.crowdAsOf || '–'}</li>
 <li>Software version ${h.version || '–'} · up ${h.uptimeMin} min</li></ul>
