@@ -1925,7 +1925,7 @@ function App(){
   const busyRef=useRef(false);
   const refreshInner = useCallback(async (full)=>{
     if(!mcp){ setLiveMsg('No live connection in this window. Live data only works when this dashboard is open inside the Claude desktop app on your Mac (not in Chrome or the claude.ai website). To practice without it, switch Data to Simulated session.'); return; }
-    setBusy(true); setLiveMsg(full?'Loading prices…':'');
+    if(full) setBusy(true); setLiveMsg(full?'Loading prices…':'');   // background ticks stay silent: only a manual refresh shows "Refreshing…"
     const now=Date.now(); const {date:today, min:nowMin}=ctParts(now);
     const errs={};
     const order=[...PRIMARY, ...ALL.filter(s=>!PRIMARY.includes(s))];
@@ -2115,8 +2115,11 @@ function App(){
         <span className="note num">${simSpeed} min/s</span>
         ${mode==='replay' && html`<span className="note">${replayMsg}</span>`}`
       : html`
-        <button id="refresh" className="primary" onClick=${()=>refreshLive(true)} disabled=${busy}>${busy?'Refreshing…':'Refresh now'}</button>
-        <span className="note">Auto-refresh every 30 s 8:15 AM–2:45 PM CT; after-hours prices every minute to 7 PM. ${liveMsg}</span>`}
+        ${(()=>{ const c=ctParts(Date.now()); const inSession = CLOUD && c.wd!=='Sat' && c.wd!=='Sun' && c.min>=RULES.OPEN-15 && c.min<=RULES.FLAT+5;
+          return inSession
+            ? html`<span className="note"><b>Live</b> · updates automatically every ${STREAMING()?'2':'10'} s until 2:45 PM CT. ${liveMsg}</span>`
+            : html`<button id="refresh" className="primary" onClick=${()=>refreshLive(true)} disabled=${busy}>${busy?'Refreshing…':'Refresh now'}</button>
+        <span className="note">${CLOUD?'Market session updates automatically 8:15 AM–2:45 PM CT. After hours, prices update every minute to 7 PM, or press Refresh now.':'Auto-refresh every 30 s 8:15 AM–2:45 PM CT; after-hours prices every minute to 7 PM.'} ${liveMsg}</span>`; })()}`}
       <span className="sep"></span>
       <span className="riskin"><label htmlFor="budget">Max $ per play</label><input id="budget" type="number" min="100" step="100" inputMode="numeric" value=${budget} onChange=${e=>setBudget(Math.max(0,+e.target.value||0))}/></span>
       <span className="note">Contracts sized to fit (max 3, at least 1)</span>

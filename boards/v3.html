@@ -1454,15 +1454,15 @@ function ChartsTab({sym, setSym, mcp, L, scans, trades}){
   const [tf,setTf]=useState(()=>lsGet('v3-tf','D')); const [data,setData]=useState({}); const [err,setErr]=useState(''); const [input,setInput]=useState(sym); const [busy,setBusy]=useState(false);
   const box=useRef(null), chartRef=useRef(null);
   useEffect(()=>lsSet('v3-tf',tf),[tf]); useEffect(()=>setInput(sym),[sym]);
-  const load = useCallback(async ()=>{
-    if(!mcp){ setErr('Charts need the Massive connection in the Claude desktop app on your Mac.'); return; } setBusy(true); setErr('');
+  const load = useCallback(async (quiet)=>{
+    if(!mcp){ setErr('Charts need the Massive connection in the Claude desktop app on your Mac.'); return; } if(quiet!==true) setBusy(true); setErr('');
     const out={};
     for(const [k] of TFS){ try{ const txt=await massive(mcp, tfPath(sym,k), {adjusted:'true',sort:'asc',limit:5000}, 'live');
       let bars=E.toBars(E.parseCSV(txt)); if(k==='H') bars=bars.filter(b=>{ const m=E.ct(b.t).min; return m>=480 && m<E.CLOSE; }); if(k==='15') bars=E.rth(bars); out[k]=bars; }catch(e){ out[k]=[]; } }
     setData(out); setBusy(false); if(!Object.values(out).some(x=>x.length)) setErr('No bars came back from Massive for '+sym+'.');
   },[sym, mcp]);
   useEffect(()=>{ load(); },[load]);
-  useEffect(()=>{ if(tf!=='H' && tf!=='15') return; const id=setInterval(()=>{ if(document.visibilityState==='visible') load(); }, 60000); return ()=>clearInterval(id); },[tf, load]);
+  useEffect(()=>{ if(tf!=='H' && tf!=='15') return; const id=setInterval(()=>{ if(document.visibilityState==='visible') load(true); }, 60000); return ()=>clearInterval(id); },[tf, load]);
   const keys=Object.keys(scans).sort(); const latest=keys.length? scans[keys[keys.length-1]] : null; const cand=latest && (latest.td||[]).find(x=>x.sym===sym);
   const pos=trades.find(x=>x.sym===sym && x.status==='open' && (x.tab==='td'||x.tab==='sw'));
   const reads = useMemo(()=>{ const o={}; for(const [k] of TFS){ const b=data[k]; o[k]= b && b.length>=20 ? TD.chartRead(b) : null; } return o; },[data]);
@@ -1507,7 +1507,7 @@ function ChartsTab({sym, setSym, mcp, L, scans, trades}){
   return html`<div style=${{display:'grid',gap:'14px'}}>
     <div className="panel">
       <div className="row between"><div className="row"><h2>${sym}</h2>${px?html`<span className="num">${f2(px)}</span>`:null}${cand? html`<span className=${'pill '+(cand.side>0?'call':'put')}>TOP-DOWN ${cand.side>0?'LONG':'SHORT'} SETUP</span>`:null}${pos?html`<span className="pill open">OPEN IN ${TABNAME[pos.tab].toUpperCase()}</span>`:null}</div>
-        <form className="row" onSubmit=${e=>{ e.preventDefault(); const v=input.trim().toUpperCase(); if(v) setSym(v); }}><input id="chart-sym" type="text" value=${input} onInput=${e=>setInput(e.target.value.toUpperCase())} style=${{width:'110px'}} aria-label="Ticker"/><button className="sm primary" type="submit">Load</button><button className="sm" type="button" onClick=${load} disabled=${busy}>${busy?'Loading…':'Refresh'}</button></form></div>
+        <form className="row" onSubmit=${e=>{ e.preventDefault(); const v=input.trim().toUpperCase(); if(v) setSym(v); }}><input id="chart-sym" type="text" value=${input} onInput=${e=>setInput(e.target.value.toUpperCase())} style=${{width:'110px'}} aria-label="Ticker"/><button className="sm primary" type="submit">Load</button><button className="sm" type="button" onClick=${()=>load()} disabled=${busy}>${busy?'Loading…':'Refresh'}</button></form></div>
       <div className="row">${quick.map(q=>html`<button key=${q} className=${'sm '+(q===sym?'primary':'ghost')} onClick=${()=>setSym(q)}>${q}</button>`)}</div>
       <div className="row" role="tablist" aria-label="Timeframe">${TFS.map(([k,l])=>html`<button key=${k} role="tab" aria-selected=${tf===k} className=${'sm '+(tf===k?'primary':'')} onClick=${()=>setTf(k)}>${l}</button>`)}</div>
       ${err? html`<div className="err">${err}</div>`:null}
