@@ -840,7 +840,7 @@ function App(){
   const pickContract = useCallback(async (sym, side, S0, minD=14, maxD=35, target=21)=>{
     const t=now();
     const rows=E.parseCSV(await api(`/v3/snapshot/options/${sym}`, {contract_type: side>0?'call':'put', 'expiration_date.gte':E.shiftDays(t.date,minD), 'expiration_date.lte':E.shiftDays(t.date,maxD),
-      'strike_price.gte': Math.floor(S0*0.95), 'strike_price.lte': Math.ceil(S0*1.05), limit:250})).filter(r=>r.details_ticker && r.details_expiration_date);
+      'strike_price.gte': Math.floor(S0*0.95), 'strike_price.lte': Math.ceil(S0*1.05), limit:250})).filter(r=>r.details_ticker && r.details_expiration_date && r.details_ticker.startsWith('O:'+sym) && /^\d/.test(r.details_ticker.slice(2+sym.length)));   // standard contracts only: chains can also list adjusted series under another root (O:B1VDA... for NVDA)
     if(!rows.length) return null;
     const exps=[...new Set(rows.map(r=>r.details_expiration_date))]; const exp=exps.sort((a,b)=>Math.abs(E.dte(t.date,a)-target)-Math.abs(E.dte(t.date,b)-target))[0];
     const r=rows.filter(x=>x.details_expiration_date===exp).sort((a,b)=>Math.abs(+a.details_strike_price-S0)-Math.abs(+b.details_strike_price-S0))[0];
