@@ -1350,6 +1350,77 @@ function StrategyAccounts({rows, budget, managed=[]}){
 }
 
 /* ======================= App ======================= */
+/* ======================= Daily watchlist (view only: never places or changes a trade) =======================
+   Three scans each trading day on the cloud engine: pre-market 7:30, open 8:31, final 8:35 CT. Each keeps the 10 best names. */
+const WL = { TOP:10, CANDS:40, MIN_PM_DOLLARS:1e6, CORE:['SPY','QQQ','IWM'], MEGA:['NVDA','TSLA','AAPL','AMD','AMZN','MSFT'], MAX_SPREAD:0.10, MAX_SPREAD_USD:0.05, MIN_PX:10, MIN_DOLLARS:100e6,
+  STAGES:[['premarket','Pre-market 7:30',450],['open','Open 8:31',511],['narrow','Final 8:35',515]],
+  UNIVERSE:('AAPL MSFT NVDA AMZN GOOGL META TSLA AVGO AMD MU INTC QCOM ARM SMCI MRVL LRCX AMAT KLAC ANET DELL ORCL CRM ADBE NOW PLTR CRWD PANW SNOW NET DDOG '+
+  'SHOP UBER ABNB NFLX DIS COIN HOOD MSTR SOFI PYPL XYZ RBLX APP AFRM RDDT TTWO EA JPM GS BAC MS C WFC V MA AXP UNH LLY ABBV MRK PFE JNJ COST WMT TGT HD LOW NKE '+
+  'SBUX MCD KO PEP CAT DE GE BA LMT RTX XOM CVX OXY SLB COP FCX NEM SPY QQQ IWM DIA SMH XLF XLE XLK GLD SLV USO UNG CPER GDX GDXJ DBA URA TLT').split(' ') };
+const wlHours = new Map();   // Central-time lookup per hour: bars come in the thousands and the date formatter is slow
+function wlCt(t){ const h=Math.floor(t/3600e3); let m=wlHours.get(h); if(!m){ m=ctParts(h*3600e3); wlHours.set(h,m); } return {date:m.date, min:m.min+Math.floor((t-h*3600e3)/60000)}; }
+const wlRound = (v,d=2)=> Number.isFinite(v) ? +v.toFixed(d) : null;
+const wlClamp = x => Math.max(-1,Math.min(1,x));
+// bars: 5-minute bars, extended hours included, cut off at asOfMin on the scan date
+function wlMetrics(bars, date, asOfMin){
+  const today=bars.filter(b=>b.date===date);
+  const days=[...new Set(bars.filter(b=>b.date<date && b.min>=RULES.OPEN && b.min<900).map(b=>b.date))].sort().reverse().slice(0,5);
+  if(!days.length || !today.length) return null;
+  const prev=bars.filter(b=>b.date===days[0] && b.min>=RULES.OPEN && b.min<900); if(!prev.length) return null;
+  const endPre=Math.min(asOfMin,RULES.OPEN), sumV=a=>a.reduce((x,b)=>x+b.v,0);
+  const preOf=d=>bars.filter(b=>b.date===d && b.min>=180 && b.min+5<=endPre);
+  const pre=preOf(date), pmVol=sumV(pre), pmAvg=days.reduce((x,d)=>x+sumV(preOf(d)),0)/days.length;
+  const pdc=prev[prev.length-1].c, pdh=Math.max(...prev.map(b=>b.h)), pdl=Math.min(...prev.map(b=>b.l));
+  const last=today[today.length-1].c, chg=(last/pdc-1)*100;
+  const first=today.find(b=>b.min===RULES.OPEN), firstDone=first && asOfMin>=RULES.OPEN+5;
+  const firstAvg=days.reduce((x,d)=>{ const b=bars.find(z=>z.date===d && z.min===RULES.OPEN); return x+(b?b.v:0); },0)/days.length;
+  const firstRvol=firstDone && firstAvg>0 ? first.v/firstAvg : null, pmRvol=pmAvg>0 && pmVol*last>=WL.MIN_PM_DOLLARS ? pmVol/pmAvg : null;
+  const pmH=pre.length?Math.max(...pre.map(b=>b.h)):null, pmL=pre.length?Math.min(...pre.map(b=>b.l)):null;
+  const flags=[]; if(last>pdh) flags.push('Above prev high'); if(last<pdl) flags.push('Below prev low');
+  if(asOfMin>RULES.OPEN){ if(pmH!=null && last>pmH) flags.push('Above pre-mkt high'); if(pmL!=null && last<pmL) flags.push('Below pre-mkt low'); }
+  return {last, chg, pdc, pdh, pdl, pmH, pmL, rvol: firstRvol ?? pmRvol, rvolKind: firstRvol!=null?'first 5 min':'pre-market', holding: firstDone ? (chg>=0 ? last>=first.o : last<=first.o) : null, flags, dollars:prev.reduce((x,b)=>x+b.v*b.c,0), prevDate:days[0]};
+}
+function wlEarn(map, sym, date, prevDate){ const e=map && map[sym]; if(!e || !e.date) return null;
+  if(e.date===date) return e.when==='amc' ? 'Earnings tonight' : 'Earnings today'; if(e.date===prevDate && e.when!=='bmo') return 'Reported last night'; return null; }
+const wlMoves = (m, stage, earn) => stage==='narrow' ? ((m.rvol>=1.2 && Math.abs(m.chg)>=0.5) || (Math.abs(m.chg)>=1 && m.holding!==false) || m.flags.length>0 || !!earn)
+  : (m.rvol>=2 || Math.abs(m.chg)>=2 || !!earn || (stage==='open' && m.flags.length>0));
+const wlScore = (m, earn, news) => Math.round(Math.min(m.rvol||0,5)*8 + Math.min(Math.abs(m.chg),5)*6 + (earn?15:0) + (news && news.n>=3?5:0) + m.flags.length*6 + (m.holding?5:0) + (Math.abs(m.rs||0)>=1?5:0));
+// Calls vs Puts lean, 0-100 (above 50 = calls). Weights are a starting guess: news 40%, market 20%, the stock's own move 20%, strength against SPY 20%.
+function wlLean(m, mkt, news){ const parts=[]; if(news && news.pUp!=null) parts.push([news.pUp,.4]);
+  parts.push([.5+wlClamp(mkt/1)*.5,.2],[.5+wlClamp(m.chg/2)*.5,.2],[.5+wlClamp((m.rs||0)/1.5)*.5,.2]);
+  const w=parts.reduce((x,p)=>x+p[1],0); return Math.round(100*parts.reduce((x,p)=>x+p[0]*p[1],0)/w); }
+
+function WatchlistTab({docs}){
+  const dates=Object.keys(docs).sort().reverse();
+  const [dateSel,setDateSel]=useState(null), [stageSel,setStageSel]=useState(null);
+  const date=dateSel&&docs[dateSel]?dateSel:dates[0], d=date?docs[date]:null, st=(d&&d.stages)||{};
+  const avail=WL.STAGES.map(x=>x[0]).filter(k=>st[k]), cur=stageSel&&st[stageSel]?stageSel:avail[avail.length-1], S=cur?st[cur]:null;
+  const rows=(S&&S.rows)||[]; const calls=rows.filter(r=>r.callPct>=50).length;
+  const pc=v=>v==null?'–':(v>=0?'+':'')+v.toFixed(2)+'%';
+  return html`<section className="panel" aria-label="Watchlist">
+    <div className="row"><h2>Watchlist · top ${WL.TOP}</h2><span className="note">View only: this list never places or changes a trade</span></div>
+    ${!d ? html`<div className="note">${IN_CLAUDE ? 'The watchlist runs on the cloud server. Open boards.kingadwords.com/v2 to see it.' : 'No scans yet. The first one runs at 7:30 AM CT on the next trading day.'}</div>` : html`
+    <div className="row" style=${{justifyContent:'flex-start',gap:'10px',flexWrap:'wrap'}}>
+      <label htmlFor="wl-date" className="note">Day</label>
+      <select id="wl-date" value=${date} onChange=${e=>{ setDateSel(e.target.value); setStageSel(null); }}>${dates.slice(0,15).map(x=>html`<option key=${x} value=${x}>${dateLabel(x)}</option>`)}</select>
+      <div className="tabs" role="tablist">${WL.STAGES.map(([k,l])=>html`<button key=${k} role="tab" aria-selected=${cur===k} className=${cur===k?'on':''} disabled=${!st[k]} onClick=${()=>setStageSel(k)}>${l}</button>`)}</div>
+    </div>
+    ${S && html`<div className="note num">Scanned ${S.scanned} tickers at ${hms(S.at)} CT · SPY ${pc(S.market.spy)} · QQQ ${pc(S.market.qqq)} · ${calls} lean calls, ${rows.length-calls} lean puts${rows.length<WL.TOP?` · only ${rows.length} passed the filters`:''}</div>`}
+    <div className="tbl"><table>
+      <thead><tr><th>#</th><th style=${{textAlign:'left'}}>Ticker</th><th style=${{textAlign:'left'}}>Lean</th><th>Price</th><th>Change</th><th>RVOL</th><th style=${{textAlign:'left'}}>Catalyst</th><th>Pre-mkt H / L</th><th>Prev H / L</th><th style=${{textAlign:'left'}}>Breaks</th><th>30-day spread</th><th>Score</th></tr></thead>
+      <tbody>${!rows.length ? html`<tr><td colSpan="12" style=${{textAlign:'left',color:'var(--dim)',fontFamily:'var(--f-body)'}}>Nothing passed the filters in this scan.</td></tr>` : rows.map((r,i)=>html`<tr key=${r.sym}>
+        <td>${i+1}</td><td style=${{textAlign:'left'}}><b>${r.sym}</b> <span className="note">${r.bucket}</span></td>
+        <td style=${{textAlign:'left'}} className=${r.callPct>=50?'up':'dn'} title=${'News '+(r.pUp!=null?Math.round(r.pUp*100)+'% up':'no read')+' · '+r.newsN+' headlines'}>${r.callPct>=50?'Calls '+r.callPct+'%':'Puts '+(100-r.callPct)+'%'}</td>
+        <td>${f2(r.last)}</td><td className=${r.chg>=0?'up':'dn'}>${pc(r.chg)}</td><td title=${r.rvolKind}>${r.rvol!=null?r.rvol.toFixed(1)+'×':'–'}</td>
+        <td style=${{textAlign:'left'}}>${[r.earn, r.newsN>=3?r.newsN+' headlines':null].filter(Boolean).join(' · ')||'–'}</td>
+        <td>${r.pmH!=null?f2(r.pmH)+' / '+f2(r.pmL):'–'}</td><td>${f2(r.pdh)} / ${f2(r.pdl)}</td>
+        <td style=${{textAlign:'left'}}>${(r.flags||[]).join(', ')||'–'}</td>
+        <td>${r.spreadPct!=null?(r.spreadPct*100).toFixed(1)+'%':'–'}</td><td>${r.score}</td></tr>`)}</tbody>
+    </table></div>`}
+    <div className="note">SPY, QQQ and IWM are always listed. Other names must be moving: pre-market and open need 2× volume, a 2% move or earnings; the final scan needs volume or a held move or a level break, and a 30-day at-the-money option spread within 10%. Lean combines Jev's news score (40%), SPY/QQQ direction (20%), the stock's move (20%) and its strength against SPY (20%). Those weights are a starting point and have not been backtested.</div>
+  </section>`;
+}
+
 function App(){
   const [mode,setMode]=useState('live');               // sim | live
   const [mcp,setMcp]=useState(null);
@@ -1358,6 +1429,9 @@ function App(){
   const [dbState,setDbState]=useState('Connecting to the log…');
   const [paper,setPaper]=useState([]);
   const [real,setReal]=useState([]);
+  const [page,setPage]=useState(()=>{ try{ return localStorage.getItem('ce-page')==='watch'?'watch':'board'; }catch(e){ return 'board'; } });
+  useEffect(()=>{ try{ localStorage.setItem('ce-page',page); }catch(e){} },[page]);
+  const [watch,setWatch]=useState({}); const wlRef=useRef({}); const wlEarnRef=useRef({map:null,asOf:null}); const wlBusy=useRef(false); const wlTried=useRef({}); const wlJev=useRef({});
   const [managed,setManaged]=useState([]); const mgRef=useRef({}); const mgBusy=useRef(false); const mgLast=useRef(0); const bfRef=useRef(null);
   const [bfMsg,setBfMsg]=useState(''); const [bfBusy,setBfBusy]=useState(false);
   const [syncMsg,setSyncMsg]=useState('');
@@ -1420,7 +1494,9 @@ function App(){
       off = d.collection('paper').onSnapshot(snap=>{ setPaper(snap.docs.map(x=>({id:x.id,...x.data()}))); }, e=>setDbState('Log stopped updating ('+e.code+')'));
       const off2 = d.collection('real').onSnapshot(snap=>{ setReal(snap.docs.map(x=>({id:x.id,...x.data()}))); }, ()=>{});
       const off3 = d.collection('managed').onSnapshot(snap=>{ const L=snap.docs.map(x=>({id:x.id,...x.data()})); const m={}; L.forEach(x=>m[x.id]=x); mgRef.current=m; setManaged(L); }, ()=>{});
-      const o1=off; off=()=>{ o1&&o1(); off2&&off2(); off3&&off3(); };
+      const off4 = d.collection('watchlist').onSnapshot(snap=>{ const m={}; snap.docs.forEach(x=>{ m[x.id]=x.data(); }); wlRef.current=m; setWatch(m); }, ()=>{});
+      const off5 = d.collection('v3earn').onSnapshot(snap=>{ const x=snap.docs.find(z=>z.id==='next'); if(x){ const v=x.data(); wlEarnRef.current={map:v.map||{}, asOf:v.asOf||null}; } }, ()=>{});
+      const o1=off; off=()=>{ o1&&o1(); off2&&off2(); off3&&off3(); off4&&off4(); off5&&off5(); };
     })();
     return ()=>{ if(off) off(); };
   },[]);
@@ -1747,7 +1823,8 @@ function App(){
     const res = await call('host:massive','call_api',{path:`/v3/snapshot/options/${sym}`, params:{
       contract_type: side>0?'call':'put', 'expiration_date.gte': shiftDays(today,RULES.EXP_MIN), 'expiration_date.lte': shiftDays(today,RULES.EXP_MAX),
       'strike_price.gte': Math.floor(S0*0.96), 'strike_price.lte': Math.ceil(S0*1.04), limit:250}});
-    const rows = parseCSV(resultText(res)).filter(r=>r.details_ticker && r.details_expiration_date);
+    // standard contracts only: chains can also list adjusted series under another root (for example O:B1VDA... for NVDA), which barely trade
+    const rows = parseCSV(resultText(res)).filter(r=>r.details_ticker && r.details_expiration_date && r.details_ticker.startsWith('O:'+sym) && /^\d/.test(r.details_ticker.slice(2+sym.length)));
     if(!rows.length) return null;
     const exps = [...new Set(rows.map(r=>r.details_expiration_date))].filter(e=>dteOf(today,e)>0);
     const exp = exps.sort((x,y)=>Math.abs(dteOf(today,x)-RULES.DTE)-Math.abs(dteOf(today,y)-RULES.DTE))[0];
@@ -1846,6 +1923,64 @@ function App(){
         if(optPending.current[k]) continue; optPending.current[k]=true;
         priceReal(date, sym, x.side, x.entryMin, x.exitMin, x.entry).then(r=>setRealOpt(o=>({...o,[k]:r}))).catch(()=>setRealOpt(o=>({...o,[k]:{ticker:null}}))); } }
   });
+
+  /* ---------- daily watchlist scans (cloud engine only, view only) ---------- */
+  const runWatch = useCallback(async (stage, date, asOfMin)=>{
+    if(!db || !mcp || wlBusy.current || window.__VIEWER || IN_CLAUDE) return null; wlBusy.current=true;
+    try{
+      const prior=wlRef.current[date]||{}, from=shiftDays(date,-10);
+      const syms=[...new Set([...WL.CORE, ...WL.MEGA, ...WL.UNIVERSE])];
+      const M={}; let idx=0;
+      const worker=async()=>{ while(idx<syms.length){ const sym=syms[idx++];
+        try{ const res=await call('host:massive','call_api',{path:`/v2/aggs/ticker/${sym}/range/5/minute/${from}/${date}`, params:{adjusted:'true',sort:'asc',limit:50000}});
+          const bars=parseCSV(resultText(res)).filter(r=>+r.t>0 && Number.isFinite(+r.c)).map(r=>{ const c=wlCt(+r.t); return {date:c.date,min:c.min,o:+r.o,h:+r.h,l:+r.l,c:+r.c,v:+r.v}; }).filter(b=>b.date<date || (b.date===date && b.min<asOfMin));
+          const m=wlMetrics(bars,date,asOfMin); if(m) M[sym]=m; }catch(e){} } };
+      await Promise.all(Array.from({length:6},worker));
+      if(!M.SPY || !M.QQQ) return {error:'no SPY/QQQ data for '+date};
+      const mkt=(M.SPY.chg+M.QQQ.chg)/2, E=wlEarnRef.current.map;
+      for(const k of Object.keys(M)) M[k].rs=M[k].chg-M.SPY.chg;
+      const bucketOf=s=>WL.CORE.includes(s)?'core':WL.MEGA.includes(s)?'mega':'catalyst';
+      let rows=Object.entries(M).map(([sym,m])=>{ const earn=wlEarn(E,sym,date,m.prevDate); return {sym,m,earn,bucket:bucketOf(sym)}; })
+        .filter(r=>r.bucket==='core' || (r.m.last>=WL.MIN_PX && r.m.dollars>=WL.MIN_DOLLARS && wlMoves(r.m,stage,r.earn)));
+      rows.forEach(r=>{ r.score=wlScore(r.m,r.earn,null); });
+      rows.sort((a,b)=>b.score-a.score);
+      const cands=[...new Set([...rows.filter(r=>r.bucket==='core').map(r=>r.sym), ...rows.map(r=>r.sym)])].slice(0,WL.CANDS);
+      rows=rows.filter(r=>cands.includes(r.sym));
+      // news read for the candidates (once per ticker per day)
+      let ji=0; const jevWorker=async()=>{ while(ji<rows.length){ const r=rows[ji++]; const k=date+':'+r.sym;
+        if(wlJev.current[k]===undefined){ try{ wlJev.current[k]=await loadJev(r.sym,date); }catch(e){ wlJev.current[k]={pUp:null,n:0}; } }
+        r.news=wlJev.current[k]; } };
+      await Promise.all(Array.from({length:4},jevWorker));
+      rows.forEach(r=>{ r.score=wlScore(r.m,r.earn,r.news); r.callPct=wlLean(r.m,mkt,r.news); });
+      rows.sort((a,b)=>b.score-a.score);
+      // live option spread once options are trading: 30-day at-the-money on the side the lean favors
+      if(asOfMin>RULES.OPEN){ let si=0; const replay=date<ctParts(Date.now()).date; const spreadWorker=async()=>{ while(si<rows.length){ const r=rows[si++];
+        try{ const c=await loadRoute(r.sym,date,r.callPct>=50?1:-1,r.m.last); if(!c) continue;
+          if(replay){ const q=await mgQuote(call,c.ticker,date,asOfMin-1); if(q && q.ask>0){ r.spreadUsd=q.ask-q.bid; r.spreadPct=r.spreadUsd/((q.ask+q.bid)/2); } }
+          else { r.spreadPct=c.spreadPct; r.spreadUsd=c.bid>0&&c.ask>0?c.ask-c.bid:null; } }catch(e){} } };
+        await Promise.all(Array.from({length:6},spreadWorker)); }
+      const spreadOk=r=>r.spreadPct!=null && (r.spreadPct<=WL.MAX_SPREAD || (r.spreadUsd!=null && r.spreadUsd<=WL.MAX_SPREAD_USD));
+      const solid=stage==='narrow' ? rows.filter(r=>r.bucket==='core' || spreadOk(r)) : rows;
+      const core=solid.filter(r=>r.bucket==='core'), rest=solid.filter(r=>r.bucket!=='core').slice(0,WL.TOP-core.length);
+      const pick=[...core,...rest].sort((a,b)=>b.score-a.score);
+      const out=pick.map(r=>({sym:r.sym,bucket:r.bucket,last:wlRound(r.m.last),chg:wlRound(r.m.chg),rvol:wlRound(r.m.rvol),rvolKind:r.m.rvolKind,pmH:wlRound(r.m.pmH),pmL:wlRound(r.m.pmL),pdh:wlRound(r.m.pdh),pdl:wlRound(r.m.pdl),
+        flags:r.m.flags,holding:r.m.holding,earn:r.earn,newsN:(r.news&&r.news.n)||0,pUp:r.news?r.news.pUp:null,callPct:r.callPct,spreadPct:r.spreadPct??null,score:r.score}));
+      const stageDoc={at:Date.now(),asOfMin,scanned:Object.keys(M).length,market:{spy:wlRound(M.SPY.chg),qqq:wlRound(M.QQQ.chg)},rows:out};
+      const doc={...prior,date,earnAsOf:wlEarnRef.current.asOf,stages:{...(prior.stages||{}),[stage]:stageDoc},updatedAt:new Date().toISOString()};
+      wlRef.current={...wlRef.current,[date]:doc}; await db.collection('watchlist').doc(date).set(doc);
+      return {stage,scanned:stageDoc.scanned,rows:out.length};
+    } finally { wlBusy.current=false; }
+  },[db, mcp, call, loadJev, loadRoute]);
+  const runWatchRef=useRef(runWatch); runWatchRef.current=runWatch;
+  useEffect(()=>{ if(!window.__CC || !window.__CC.engine) return;
+    window.__wlRun=(stage,date,asOfMin)=>runWatchRef.current(stage,date,asOfMin);
+    const tick=()=>{ const n=new Date(), c=ctParts(n.getTime()); if(c.wd==='Sat'||c.wd==='Sun') return;
+      for(const [k,,at] of WL.STAGES){ if(c.min<at || c.min>at+25 || (wlRef.current[c.date]&&wlRef.current[c.date].stages&&wlRef.current[c.date].stages[k])) continue;
+        if(k==='narrow' && c.min===at && n.getSeconds()<20) continue;   // let the first 5-minute candle finish printing
+        const tk=c.date+k, t=wlTried.current[tk]||{n:0,at:0}; if(t.n>=3 || Date.now()-t.at<60e3) continue;
+        wlTried.current[tk]={n:t.n+1,at:Date.now()}; runWatchRef.current(k,c.date,c.min).catch(()=>{}); break; } };
+    const iv=setInterval(tick,15e3); const t0=setTimeout(tick,12e3); return ()=>{ clearInterval(iv); clearTimeout(t0); };
+  },[]);
 
   /* ---------- bid/ask for GO IN, 5-MIN and TECH GO: the real ask at the entry minute and bid at the exit minute ---------- */
   const baBusy=useRef(false);
@@ -2094,6 +2229,10 @@ function App(){
       </div>
     </header>
 
+    <div className="tabs" role="tablist" aria-label="Page">${[['board','Board'],['watch','Watchlist']].map(([k,l])=>html`<button key=${k} role="tab" aria-selected=${page===k} className=${page===k?'on':''} onClick=${()=>setPage(k)}>${l}</button>`)}</div>
+    ${page==='watch' && html`<${WatchlistTab} docs=${watch}/>`}
+    <div style=${{display:page==='board'?'contents':'none'}}>
+
     <div className="bar-controls">
       <label htmlFor="mode">Data</label>
       <select id="mode" value=${mode} onChange=${e=>switchMode(e.target.value)}>
@@ -2186,6 +2325,8 @@ function App(){
       </section>
     </div>
 
+
+    </div>
 
     <footer>Live mode reads 1-minute bars, news and the option chain from Massive and scores the headlines with Jev, through the servers on your Mac. It only works in the Claude desktop app there. Volume delta is estimated from 1-minute bars (close position within each bar's range). Option values in the projections use the contract's delta, gamma and theta. They are estimates, not quotes. Research and paper trading only.</footer>
   </div>`;

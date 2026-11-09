@@ -39,7 +39,7 @@ const CFG = {
 };
 const BOARDS = {
   v3: { file: 'boards/v3.html', title: 'Conviction Board v3', engineOnly: ['v3trades', 'v3signals'] },
-  v2: { file: 'boards/v2.html', title: 'Conviction Engine v2', engineOnly: ['paper', 'real', 'managed'] },
+  v2: { file: 'boards/v2.html', title: 'Conviction Engine v2', engineOnly: ['paper', 'real', 'managed', 'watchlist', 'v3earn'] },
 };
 fs.mkdirSync(CFG.dataDir, { recursive: true });
 const LOG = [];
@@ -195,8 +195,10 @@ function loadFeeds() {
   for (const [f, doc] of FEEDS) {
     const p = path.join(ROOT, 'feeds', f); let txt; try { txt = fs.readFileSync(p, 'utf8'); } catch (e) { continue; }
     let v; try { v = JSON.parse(txt); } catch (e) { log('feed parse failed', f); continue; }
-    const cur = (dbOf('v3').v3earn || {})[doc];
-    if (!cur || JSON.stringify(cur) !== JSON.stringify(v)) { dbWrite('v3', 'v3earn', doc, 'set', v); log('feed loaded:', f, 'asOf', v.asOf); }
+    for (const b of ['v3', 'v2']) {   // v2's watchlist reads the same earnings dates
+      const cur = (dbOf(b).v3earn || {})[doc];
+      if (!cur || JSON.stringify(cur) !== JSON.stringify(v)) { dbWrite(b, 'v3earn', doc, 'set', v); log('feed loaded:', b, f, 'asOf', v.asOf); }
+    }
   }
 }
 
