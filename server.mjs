@@ -240,6 +240,16 @@ async function optionQuote(sym, occ) {
   return { bid: n('last_quote_bid'), ask: n('last_quote_ask'), bidSize: n('last_quote_bid_size'), askSize: n('last_quote_ask_size'), at: ns ? Math.round(ns / 1e6) : null };
 }
 let BROKER = null;
+// One-time repair: a restart at 11:39 PM CT on Nov 6 rewrote these two recorded plays with estimated contracts. Restores what Alpaca actually traded; does nothing once applied.
+function repairNov6() {
+  const fix = { '2026-11-06-TSLA-5m': { ticker: 'O:TSLA261204C00360000', strike: 360, contracts: 1, premEntry: 21.2, premExit: 20.77, dollarPL: -130 }, '2026-11-06-PLTR-5m': { ticker: 'O:PLTR261204C00165000', strike: 165, contracts: 1, premEntry: 8.25, premExit: 8.05, dollarPL: -180 } };
+  for (const [id, f] of Object.entries(fix)) {
+    const d = (dbOf('v2').paper || {})[id];
+    if (!d || !d.contract || !d.contract.est || !String(d.updatedAt || '').startsWith('2026-11-07T05:39')) continue;
+    dbWrite('v2', 'paper', id, 'update', { contract: { ticker: f.ticker, strike: f.strike, est: false }, contracts: f.contracts, sizeNote: null, premEntry: f.premEntry, premExit: f.premExit, optPct: (f.premExit / f.premEntry - 1) * 100, dollarPL: f.dollarPL, updatedAt: new Date().toISOString() });
+    log('repaired recorded play', id);
+  }
+}
 function brokerStart() {
   BROKER = createBroker({ quote: optionQuote, store: { data: dbOf('broker'), save: () => dbSave('broker') }, log,
     haltFile: path.join(CFG.dataDir, 'HALT_TRADING'), fs });
@@ -249,6 +259,7 @@ function brokerStart() {
     for (const [b, coll] of [['v2', 'paper'], ['v3', 'v3trades']]) for (const [id, d] of Object.entries(dbOf(b)[coll] || {})) if (d && d.date === today) BROKER.onDoc(b, coll, id, d).catch(() => {});
   });
   setInterval(() => BROKER.tick().catch(e => log('broker tick:', e.message)), 1000);
+  setInterval(() => BROKER.refreshAccounts().catch(e => log('broker account read:', e.message)), 5000);
 }
 
 function streamStart() {
@@ -493,6 +504,8 @@ const server = http.createServer(async (req, res) => {
     if (!au.ok) { logDenied(req, au.why); res.writeHead(401, { 'www-authenticate': 'Basic realm="Conviction boards", charset="UTF-8"', 'content-type': 'text/plain', 'cache-control': 'no-store' }); return res.end('Sign in with your board user name and password.'); }
     const p = u.pathname;
     if (p === '/' ) return send(res, 200, indexPage(), 'text/html; charset=utf-8');
+    if (p === '/alpaca' || p === '/alpaca/') return send(res, 200, fs.readFileSync(path.join(ROOT, 'boards', 'alpaca.html'), 'utf8'), 'text/html; charset=utf-8');
+    if (p === '/api/alpaca') return send(res, 200, BROKER ? BROKER.report() : { error: 'not started' });
     const bm = /^\/(v2|v3)\/?$/.exec(p);
     if (bm) { const engine = isLocal(req) && u.searchParams.get('engine') === CFG.engineToken; return send(res, 200, boardHtml(bm[1], engine), 'text/html; charset=utf-8'); }
     if (p === '/api/health') return send(res, 200, health());
@@ -561,6 +574,7 @@ a.b b{font-size:18px}.ok{color:var(--go)}.bad{color:var(--warn)}ul{padding-left:
 <h1>Conviction Cloud</h1><div class="mut">Paper trading only · runs around the clock on your server</div>
 <a class="b" href="/v3"><b>Conviction Board v3 →</b><div class="mut">Five strategy tabs, $50,000 paper account each</div></a>
 <a class="b" href="/v2"><b>Conviction Engine v2 →</b><div class="mut">Opening-range play cards</div></a>
+<a class="b" href="/alpaca"><b>Alpaca paper accounts →</b><div class="mut">Live balances, positions and trades</div></a>
 <h2 style="font-size:16px">Status</h2><ul>
 <li>Market data (Massive): <span class="${h.massive.lastOkAgoSec != null && h.massive.lastOkAgoSec < 120 ? 'ok' : 'bad'}">${h.massive.keySet ? 'last good reply ' + ago(h.massive.lastOkAgoSec) : 'API key missing'}</span>${h.massive.lastErr ? ' · last problem: ' + escapeHtml(String(h.massive.lastErr).slice(0, 140)) : ''}</li>
 <li>Live stream: ${h.stream.live ? `<span class="ok">on</span> · ${h.stream.tickers} tickers · last update ${ago(h.stream.lastDataAgoSec)} · ${h.stream.answeredFromStream} requests answered from the stream, ${h.stream.sentToMassive} sent to Massive`
@@ -653,6 +667,7 @@ server.listen(CFG.port, CFG.host, async () => {
   setInterval(() => gitSync().catch(e => log('git', e.message)), 15 * 60000);
   massiveClient().catch(e => log('massive start failed:', e.message));
   streamStart();
+  repairNov6();
   brokerStart();
   ENG.start();
 });

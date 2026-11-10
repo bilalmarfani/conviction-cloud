@@ -60,6 +60,7 @@ export function createBroker({ env = process.env, quote, store, log = console.lo
     maxContracts: num(env.BROKER_MAX_CONTRACTS, 10),
     maxOpen: num(env.BROKER_MAX_OPEN, 4),
     dailyLoss: num(env.BROKER_DAILY_LOSS, 1500),       // no new entries once an account is down this much today
+    startEquity: num(env.BROKER_START_EQUITY, 50000), acctMs: num(env.BROKER_ACCOUNT_MS, 15000),
     entryStart: 8 * 60 + 30, entryEnd: num(env.BROKER_ENTRY_END_MIN, 14 * 60 + 35), flatMin: 14 * 60 + 50, closeMin: 15 * 60,
   };
   const ENTRY_STEPS = [0.5, 0.65, 0.8, 1.0];   // fraction of the spread above the bid: mid -> ask
@@ -287,16 +288,62 @@ export function createBroker({ env = process.env, quote, store, log = console.lo
     } finally { busy = false; }
   }
 
+  // ---- Alpaca's own numbers: balance and positions, read every 15 s in market hours and every 5 minutes otherwise ----
+  async function readAccount(a) {
+    const r = await api(a.k, 'GET', '/v2/account'), pos = await api(a.k, 'GET', '/v2/positions');
+    a.info = { status: r.status, equity: num(r.equity, null), lastEquity: num(r.last_equity, null), cash: num(r.cash, null), buyingPower: num(r.options_buying_power ?? r.buying_power, null),
+      optionsLevel: r.options_trading_level ?? r.options_approved_level ?? null, number: r.account_number ? String(r.account_number).slice(-4) : null, at: now() };
+    a.positions = (Array.isArray(pos) ? pos : []).map(p => ({ symbol: p.symbol, qty: num(p.qty, 0), avgEntry: num(p.avg_entry_price, null), price: num(p.current_price, null), marketValue: num(p.market_value, null), unrealized: num(p.unrealized_pl, null) }));
+    a.readErr = null;
+    if (a.info.optionsLevel != null && a.info.optionsLevel < 2) { a.ok = false; a.why = 'options level ' + a.info.optionsLevel + ' on this paper account: buying calls and puts needs level 2'; }
+    else { a.ok = true; a.why = null; }
+  }
+  const usable = a => a.key && a.sec && !/^AK/.test(a.key);
+
   async function connect() {
     for (const a of Object.values(accts)) {
-      if (!a.ok) { log(`broker ${a.name}: ${a.why}`); continue; }
-      try {
-        const r = await api(a.k, 'GET', '/v2/account');
-        a.info = { status: r.status, equity: num(r.equity, null), buyingPower: num(r.options_buying_power ?? r.buying_power, null), optionsLevel: r.options_trading_level ?? r.options_approved_level ?? null, number: r.account_number ? String(r.account_number).slice(-4) : null };
-        if (a.info.optionsLevel != null && a.info.optionsLevel < 2) { a.ok = false; a.why = 'options level ' + a.info.optionsLevel + ' on this paper account: buying calls and puts needs level 2'; }
-        log(`broker ${a.name}: connected to paper account …${a.info.number || '?'} (equity $${a.info.equity}, options level ${a.info.optionsLevel})`);
-      } catch (e) { a.ok = false; a.why = e.status === 401 || e.status === 403 ? 'Alpaca refused the keys' : 'cannot reach Alpaca: ' + e.message; log(`broker ${a.name}: ${a.why}`); }
+      if (!usable(a)) { log(`broker ${a.name}: ${a.why}`); continue; }
+      try { await readAccount(a); log(`broker ${a.name}: connected to paper account …${a.info.number || '?'} (equity $${a.info.equity}, options level ${a.info.optionsLevel})`); }
+      catch (e) { a.ok = false; a.why = e.status === 401 || e.status === 403 ? 'Alpaca refused the keys' : 'cannot reach Alpaca: ' + e.message; log(`broker ${a.name}: ${a.why}`); }
     }
+  }
+
+  let lastRead = 0, reading = false;
+  async function refreshAccounts(force) {
+    const t = ctParts(now()), session = t.wd !== 'Sat' && t.wd !== 'Sun' && t.min >= 8 * 60 && t.min <= 15 * 60 + 30;
+    if (reading || (!force && now() - lastRead < (session ? C.acctMs : 300000))) return;
+    reading = true; lastRead = now();
+    try { for (const a of Object.values(accts)) { if (!usable(a)) continue; try { await readAccount(a); } catch (e) { a.readErr = e.message; if (e.status === 401 || e.status === 403) { a.ok = false; a.why = 'Alpaca refused the keys'; } } } }
+    finally { reading = false; }
+  }
+
+  // Compare Alpaca's balance and positions with this ledger's own fills. Fees make the balance a few cents lower, so small differences are expected.
+  function reconcile(a) {
+    if (!a.info) return { state: 'unknown', note: 'Alpaca has not answered yet' };
+    const plays = Object.values(L.plays).filter(x => x.acct === a.k), held = {}, pos = {};
+    if (Object.values(L.orders).some(o => o.acct === a.k && !['done', 'failed', 'missed'].includes(o.state))) return { state: 'working', note: 'An order is working' };
+    for (const p of plays) if (p.held > 0) held[p.occ] = (held[p.occ] || 0) + p.held;
+    for (const p of a.positions || []) if (p.qty) pos[p.symbol] = p.qty;
+    const diffs = [...new Set([...Object.keys(held), ...Object.keys(pos)])].filter(k => (held[k] || 0) !== (pos[k] || 0)).map(k => `${k}: engine ${held[k] || 0}, Alpaca ${pos[k] || 0}`);
+    if (diffs.length) return { state: 'mismatch', note: 'Positions differ: ' + diffs.join('; ') };
+    if (Object.keys(pos).length) return { state: 'ok', note: 'Positions match (balance is compared when flat)' };
+    const flat = plays.filter(p => p.cost > 0 && p.held === 0), realized = flat.reduce((x, p) => x + p.proceeds - p.cost, 0), contracts = flat.reduce((x, p) => x + p.sold, 0);
+    const expected = C.startEquity + realized, diff = a.info.equity - expected, tol = 25 + 0.25 * contracts;
+    return { state: Math.abs(diff) <= tol ? 'ok' : 'mismatch', expected: Math.round(expected * 100) / 100, diff: Math.round(diff * 100) / 100, note: Math.abs(diff) <= tol ? 'Balance matches the fills' : `Balance is $${Math.abs(diff).toFixed(2)} ${diff < 0 ? 'below' : 'above'} what the fills imply` };
+  }
+
+  // Everything the Alpaca board shows
+  function report() {
+    const out = status(); const parse = o => { const m = /^([A-Z.]+)(\d{2})(\d{2})(\d{2})([CP])(\d{8})$/.exec(o || ''); return m ? { type: m[5] === 'C' ? 'Call' : 'Put', strike: +m[6] / 1000, expiry: `20${m[2]}-${m[3]}-${m[4]}` } : {}; };
+    const avg = fs => { const q = fs.reduce((x, f) => x + f.qty, 0); return q ? fs.reduce((x, f) => x + f.qty * f.px, 0) / q : null; };
+    const trades = Object.values(L.plays).sort((x, y) => (y.created || 0) - (x.created || 0)).map(p => {
+      const ords = Object.values(L.orders).filter(o => o.play === pk(p.acct, p.playId)), inF = ords.filter(o => o.side === 'buy').flatMap(o => o.fills || []), outF = ords.filter(o => o.side === 'sell').flatMap(o => o.fills || []);
+      const slip = [...inF, ...outF].reduce((x, f) => x + (f.slipMid != null ? f.slipMid * f.qty * 100 : 0), 0);
+      return { acct: p.acct, name: accts[p.acct].name, date: p.date, id: p.playId, sym: p.sym, occ: p.occ, ...parse(p.occ), state: p.state, why: p.why || null, exitReason: p.exitReason || null, boardQty: p.boardQty, note: p.sizeNote || null,
+        qty: inF.reduce((x, f) => x + f.qty, 0), held: p.held, sold: p.sold, entry: avg(inF), entryAt: inF.length ? inF[0].at : null, exit: avg(outF), exitAt: outF.length ? outF[outF.length - 1].at : null,
+        pl: p.state === 'closed' ? Math.round(p.proceeds - p.cost) : null, slip: Math.round(slip) };
+    });
+    return { now: now(), paperOnly: true, startEquity: C.startEquity, on: out.on, halted: out.halted, accounts: out.accounts, trades };
   }
 
   function status() {
@@ -304,7 +351,9 @@ export function createBroker({ env = process.env, quote, store, log = console.lo
     for (const a of Object.values(accts)) {
       const st = (L.days && L.days[t.date] && L.days[t.date][a.k]) || null;
       const plays = Object.values(L.plays).filter(x => x.acct === a.k && x.date === t.date);
-      out.accounts[a.k] = { name: a.name, connected: a.ok, why: a.why, info: a.info,
+      const allPlays = Object.values(L.plays).filter(x => x.acct === a.k && x.state === 'closed');
+      out.accounts[a.k] = { name: a.name, connected: a.ok, why: a.why, info: a.info, positions: a.positions || [], readErr: a.readErr || null, reconcile: reconcile(a),
+        realizedAll: Math.round(allPlays.reduce((x, p) => x + p.proceeds - p.cost, 0)), tradesAll: allPlays.length,
         today: { plays: plays.length, open: plays.filter(x => x.state === 'open' || x.state === 'entering' || x.state === 'closing').length,
           closed: plays.filter(x => x.state === 'closed').length, skipped: plays.filter(x => x.state === 'skipped' || x.state === 'missed').length,
           realized: st ? Math.round(st.realized) : 0, fills: st ? st.fills : 0,
@@ -313,5 +362,5 @@ export function createBroker({ env = process.env, quote, store, log = console.lo
     return out;
   }
 
-  return { onDoc, tick, connect, status, config: C, accounts: accts, ledger: L };
+  return { onDoc, tick, connect, refreshAccounts, status, report, reconcile, config: C, accounts: accts, ledger: L };
 }

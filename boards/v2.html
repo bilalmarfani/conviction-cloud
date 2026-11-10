@@ -579,6 +579,11 @@ const pxIn = r => (r && r.premEntryAsk > 0 ? r.premEntryAsk : r && r.premEntry);
 const pxOut = r => (r && r.premExitBid > 0 ? r.premExitBid : r && r.premExit);
 // carry the quote fields from the stored doc (or the in-memory play) into a freshly built doc, and price it at bid/ask
 function withBidAsk(doc, x, prev){
+  // A play already routed to a real contract keeps it: a later save with an estimate or another contract never replaces what was recorded
+  if(prev && prev.entryMin===doc.entryMin && prev.contract && prev.contract.ticker && !prev.contract.est && doc.contract && (doc.contract.est || doc.contract.ticker!==prev.contract.ticker)){
+    for(const k of ['contract','premEntry','contracts','budget','sizeNote']) doc[k]=prev[k]??null;
+    if(prev.exitMin===doc.exitMin && prev.premExit>0){ doc.premExit=prev.premExit; doc.optPct=prev.optPct??doc.optPct; }
+  }
   const sameEntry = prev && prev.entryMin===doc.entryMin, sameExit = prev && prev.exitMin===doc.exitMin;
   doc.premEntryAsk = x && x.premAsk > 0 ? x.premAsk : (sameEntry && prev.premEntryAsk > 0 ? prev.premEntryAsk : null);
   doc.premExitBid = doc.status!=='closed' ? null : (x && x.premBid > 0 ? x.premBid : (sameExit && prev.premExitBid > 0 ? prev.premExitBid : null));
@@ -1429,6 +1434,7 @@ function App(){
   const [dbState,setDbState]=useState('Connecting to the log…');
   const [paper,setPaper]=useState([]);
   const [real,setReal]=useState([]);
+  const [paperLoaded,setPaperLoaded]=useState(false);   // live scanning waits for the saved plays, so a restart restores them instead of re-firing them
   const [page,setPage]=useState(()=>{ try{ return localStorage.getItem('ce-page')==='watch'?'watch':'board'; }catch(e){ return 'board'; } });
   useEffect(()=>{ try{ localStorage.setItem('ce-page',page); }catch(e){} },[page]);
   const [watch,setWatch]=useState({}); const wlRef=useRef({}); const wlEarnRef=useRef({map:null,asOf:null}); const wlBusy=useRef(false); const wlTried=useRef({}); const wlJev=useRef({});
@@ -1475,10 +1481,10 @@ function App(){
   // capabilities
   useEffect(()=>{ let off=null;
     (async()=>{
-      const c = window.claude; if(!c||!c.use){ setDbState('Log unavailable in this view'); return; }
+      const c = window.claude; if(!c||!c.use){ setDbState('Log unavailable in this view'); setPaperLoaded(true); return; }
       c.use('mcp').then(m=>setMcp(m)).catch(()=>{});
       const d = await c.use('db').catch(()=>null);
-      if(!d){ setDbState('Log unavailable in this view (sign in to claude.ai to keep paper trades)'); return; }
+      if(!d){ setDbState('Log unavailable in this view (sign in to claude.ai to keep paper trades)'); setPaperLoaded(true); return; }
       // Same file runs on the cloud server and as the claude.ai artifact. In claude.ai (no window.__CC) the server is the
       // recorder and a sync copies its plays here, so automatic set/update on 'paper' and 'managed' do nothing.
       // Manual entries (id ending -m...) and deletes still work.
@@ -1491,7 +1497,7 @@ function App(){
                 return new Proxy(ref, { get(r,k3){ return (k3==='set'||k3==='update')? (async()=>{}) : bindv(r,k3); } }); }; } }); }; } });
         setDb(viewOnly); setDbState('Plays are recorded by the cloud server and copied here every 5 minutes during the session');
       } else { setDb(d); setDbState('Saved to this dashboard'); }
-      off = d.collection('paper').onSnapshot(snap=>{ setPaper(snap.docs.map(x=>({id:x.id,...x.data()}))); }, e=>setDbState('Log stopped updating ('+e.code+')'));
+      off = d.collection('paper').onSnapshot(snap=>{ setPaper(snap.docs.map(x=>({id:x.id,...x.data()}))); setPaperLoaded(true); }, e=>{ setDbState('Log stopped updating ('+e.code+')'); setPaperLoaded(true); });
       const off2 = d.collection('real').onSnapshot(snap=>{ setReal(snap.docs.map(x=>({id:x.id,...x.data()}))); }, ()=>{});
       const off3 = d.collection('managed').onSnapshot(snap=>{ const L=snap.docs.map(x=>({id:x.id,...x.data()})); const m={}; L.forEach(x=>m[x.id]=x); mgRef.current=m; setManaged(L); }, ()=>{});
       const off4 = d.collection('watchlist').onSnapshot(snap=>{ const m={}; snap.docs.forEach(x=>{ m[x.id]=x.data(); }); wlRef.current=m; setWatch(m); }, ()=>{});
@@ -2166,7 +2172,7 @@ function App(){
   },[refreshInner]);
 
   const refreshRef = useRef(refreshLive); refreshRef.current = refreshLive;
-  useEffect(()=>{ if(mode!=='live') return;
+  useEffect(()=>{ if(mode!=='live' || !paperLoaded) return;
     refreshRef.current(true);
     // session: every 30 s in the Claude app; on the cloud server every 2 s (stream on) or 10 s (stream off). After the session: every 60 s.
     let last=Date.now(); const id=setInterval(()=>{ const {min,wd}=ctParts(Date.now()); if(wd==='Sat'||wd==='Sun') return; const n=Date.now();
@@ -2174,7 +2180,7 @@ function App(){
       if(min>=RULES.OPEN-15&&min<=RULES.FLAT+5){ if(n-last>=every-500){ last=n; refreshRef.current(false); } }
       else if(min>RULES.FLAT+5 && min<=19*60 && n-last>=59000){ last=n; refreshRef.current(false); } }, CLOUD?1000:30000);
     return ()=>clearInterval(id);
-  },[mode, mcp]); // eslint-disable-line
+  },[mode, mcp, paperLoaded]); // eslint-disable-line
 
   const syncWebull = useCallback(async ()=>{
     if(!mcp){ setSyncMsg('Open the board in the Claude app to sync.'); return; }

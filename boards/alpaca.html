@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Conviction · Alpaca paper accounts</title>
+<style>
+:root{color-scheme:dark;--bg:#0b0f14;--panel:#121820;--panel2:#18202a;--line:#263240;--text:#e7edf3;--muted:#92a1b1;--up:#37d67a;--dn:#ff6b6b;--amb:#ffc24b;--acc:#5fb4ff}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+main{max-width:1180px;margin:0 auto;padding:18px 16px 40px;display:grid;gap:14px}
+header{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:8px}h1{font-size:22px;margin:0}h2{font-size:15px;margin:0}
+.mut{color:var(--muted);font-size:12.5px}.chip{display:inline-block;padding:2px 8px;border-radius:999px;border:1px solid var(--line);font-size:12px;color:var(--muted)}
+.chip.ok{color:var(--up);border-color:rgba(55,214,122,.5)}.chip.bad{color:var(--dn);border-color:rgba(255,107,107,.6)}.chip.warn{color:var(--amb);border-color:rgba(255,194,75,.6)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:12px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px;display:grid;gap:9px;min-width:0}
+.row{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}.bal{font-size:28px;font-weight:700;font-variant-numeric:tabular-nums}
+.kv{display:grid;grid-template-columns:1fr 1fr;gap:3px 12px;font-size:13px;font-variant-numeric:tabular-nums}.kv span:nth-child(odd){color:var(--muted)}.kv span:nth-child(even){text-align:right}
+.up{color:var(--up)}.dn{color:var(--dn)}.tbl{overflow-x:auto}table{border-collapse:collapse;width:100%;font-size:13px;font-variant-numeric:tabular-nums;white-space:nowrap}
+th,td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:right}th{color:var(--muted);font-weight:500;font-size:12px}td.l,th.l{text-align:left}
+.controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap}select,label{font:inherit;color:var(--text)}select{background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:4px 7px}
+.err{color:var(--dn)}
+</style></head><body><main>
+<header><div><h1>Alpaca paper accounts</h1><div class="mut">Balances and positions come straight from Alpaca. Trades are the engine's actual Alpaca orders. Paper trading only.</div></div><div id="state" class="mut">Loading…</div></header>
+<div id="err" class="err" role="alert"></div>
+<div id="accounts" class="grid"></div>
+<section class="panel"><h2>Open positions</h2><div id="positions"></div></section>
+<section class="panel"><h2>Results by day</h2><div id="days"></div></section>
+<section class="panel"><div class="row"><h2>Trades</h2><div class="controls">
+  <label for="acct" class="mut">Account</label><select id="acct"><option value="">All</option></select>
+  <label for="day" class="mut">Day</label><select id="day"><option value="">All</option></select>
+  <label class="mut"><input type="checkbox" id="skips"> Show skipped plays</label></div></div><div id="trades"></div></section>
+</main><script>
+const $=id=>document.getElementById(id);
+const esc=v=>String(v==null?'':v).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const num=(v,d=2)=>v==null?'–':Number(v).toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});
+const usd=(v,d=2)=>v==null?'–':'$'+num(v,d);
+const pl=v=>v==null?'–':`<span class="${v>=0?'up':'dn'}">${v>=0?'+':'−'}$${num(Math.abs(v),0)}</span>`;
+const pl2=v=>v==null?'–':`<span class="${v>=0?'up':'dn'}">${v>=0?'+':'−'}$${num(Math.abs(v),2)}</span>`;
+const time=ms=>ms?new Intl.DateTimeFormat('en-US',{timeZone:'America/Chicago',hour:'numeric',minute:'2-digit',second:'2-digit'}).format(new Date(ms)):'–';
+const dayLabel=d=>new Date(d+'T12:00:00Z').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',timeZone:'UTC'});
+let data=null;
+function cards(){
+  $('accounts').innerHTML=Object.values(data.accounts).map(a=>{
+    const i=a.info||{}, r=a.reconcile||{}, day=i.equity!=null&&i.lastEquity!=null?i.equity-i.lastEquity:null;
+    const cls=!a.connected?'bad':r.state==='ok'?'ok':r.state==='mismatch'?'bad':'warn', lab=!a.connected?'Not connected':r.state==='ok'?'In sync':r.state==='mismatch'?'Out of sync':r.state==='working'?'Order working':'Checking';
+    return `<section class="panel" aria-label="${esc(a.name)}"><div class="row"><h2>${esc(a.name)}</h2><span class="chip ${cls}">${lab}</span></div>
+      <div class="bal">${usd(i.equity)}</div>
+      <div class="kv"><span>Today (Alpaca)</span><span>${pl2(day)}</span><span>Since start</span><span>${i.equity!=null?pl2(i.equity-data.startEquity):'–'}</span>
+      <span>Options buying power</span><span>${usd(i.buyingPower)}</span><span>Open positions</span><span>${(a.positions||[]).length}</span>
+      <span>Closed trades</span><span>${a.tradesAll}</span><span>Slippage vs mid today</span><span>${usd(a.today.slipVsMidUsd,0)}</span></div>
+      <div class="mut">${esc(a.connected?(r.note||''):(a.why||''))}${r.diff!=null?` · expected ${usd(r.expected)}, difference ${usd(r.diff)}`:''}</div>
+      <div class="mut">Account …${esc(i.number||'?')} · read from Alpaca at ${time(i.at)} CT${a.readErr?` · <span class="err">last read failed: ${esc(a.readErr)}</span>`:''}</div></section>`; }).join('');
+}
+function positions(){
+  const rows=Object.values(data.accounts).flatMap(a=>(a.positions||[]).map(p=>({...p,name:a.name})));
+  $('positions').innerHTML=rows.length?`<div class="tbl"><table><thead><tr><th class="l">Account</th><th class="l">Contract</th><th>Qty</th><th>Avg entry</th><th>Now</th><th>Value</th><th>Unrealized</th></tr></thead><tbody>${rows.map(p=>`<tr><td class="l">${esc(p.name)}</td><td class="l">${esc(p.symbol)}</td><td>${p.qty}</td><td>${usd(p.avgEntry)}</td><td>${usd(p.price)}</td><td>${usd(p.marketValue,0)}</td><td>${pl(p.unrealized)}</td></tr>`).join('')}</tbody></table></div>`:'<div class="mut">No open positions.</div>';
+}
+function days(){
+  const names=Object.values(data.accounts).map(a=>a.name), m={};
+  data.trades.filter(t=>t.pl!=null).forEach(t=>{ (m[t.date]=m[t.date]||{})[t.name]=(m[t.date][t.name]||0)+t.pl; });
+  const ds=Object.keys(m).sort().reverse();
+  $('days').innerHTML=ds.length?`<div class="tbl"><table><thead><tr><th class="l">Day</th>${names.map(n=>`<th>${esc(n)}</th>`).join('')}<th>All</th></tr></thead><tbody>${ds.map(d=>{ const t=names.reduce((x,n)=>x+(m[d][n]||0),0); return `<tr><td class="l">${dayLabel(d)}</td>${names.map(n=>`<td>${m[d][n]==null?'–':pl(m[d][n])}</td>`).join('')}<td>${pl(t)}</td></tr>`; }).join('')}</tbody></table></div>`:'<div class="mut">No closed trades yet.</div>';
+}
+function trades(){
+  const A=$('acct').value, D=$('day').value, S=$('skips').checked;
+  const rows=data.trades.filter(t=>(!A||t.acct===A)&&(!D||t.date===D)&&(S||t.qty>0));
+  const stateText=t=>t.state==='closed'?(t.exitReason||'closed'):t.state==='open'?'open':t.state==='closing'?'closing':t.state==='entering'?'entering':(t.why||t.state);
+  $('trades').innerHTML=rows.length?`<div class="tbl"><table><thead><tr><th class="l">Day</th><th class="l">Account</th><th class="l">Contract</th><th>Qty</th><th>Entry</th><th>Filled</th><th>Exit</th><th>Filled</th><th>P&amp;L</th><th>Slippage</th><th class="l">Result</th></tr></thead><tbody>${rows.map(t=>`<tr><td class="l">${dayLabel(t.date)}</td><td class="l">${esc(t.name)}</td><td class="l"><b>${esc(t.sym)}</b> ${t.strike!=null?esc(num(t.strike,t.strike%1?1:0)+' '+t.type+' '+t.expiry.slice(5)):esc(t.occ||'')}</td><td>${t.qty||'–'}</td><td>${t.entry!=null?usd(t.entry):'–'}</td><td>${time(t.entryAt)}</td><td>${t.exit!=null?usd(t.exit):'–'}</td><td>${time(t.exitAt)}</td><td>${pl(t.pl)}</td><td>${t.qty?usd(t.slip,0):'–'}</td><td class="l">${esc(stateText(t))}${t.note?` <span class="mut">${esc(t.note)}</span>`:''}</td></tr>`).join('')}</tbody></table></div>`:'<div class="mut">No trades for this selection.</div>';
+}
+function fill(sel,opts){ const v=sel.value, html=['<option value="">All</option>',...opts.map(([k,l])=>`<option value="${esc(k)}">${esc(l)}</option>`)].join(''); if(sel.innerHTML!==html){ sel.innerHTML=html; sel.value=v; } }
+function render(){ cards(); positions(); days();
+  fill($('acct'),Object.entries(data.accounts).map(([k,a])=>[k,a.name]));
+  fill($('day'),[...new Set(data.trades.map(t=>t.date))].sort().reverse().map(d=>[d,dayLabel(d)]));
+  trades();
+  $('state').innerHTML=`<span class="chip ${data.halted?'bad':'ok'}">${data.halted?'New entries halted':'Paper trading on'}</span> Updated ${time(data.now)} CT`; }
+async function load(){ try{ const r=await fetch('/api/alpaca',{credentials:'same-origin',cache:'no-store'}); if(!r.ok) throw new Error('HTTP '+r.status); data=await r.json(); if(data.error) throw new Error(data.error); $('err').textContent=''; render(); }catch(e){ $('err').textContent='Could not update: '+e.message; } }
+['acct','day','skips'].forEach(id=>$(id).addEventListener('change',()=>data&&trades()));
+load(); setInterval(load,5000);
+</script></body></html>
